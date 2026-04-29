@@ -2,6 +2,11 @@
 
 *-backups/
 
+# Interactive BOM files
+
+*-bom/
+ibom.html
+
 #JLC PCB generated files. Exclude everything except the database.
 
 /jlcpcb/production_files
