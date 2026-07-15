@@ -21402,6 +21402,17 @@
 				(xyz 0 0 0)
 			)
 		)
+		(model "${KIPRJMOD}/CM5IO.3dshapes/BM04B-SRSS-TB.STEP"
+			(offset
+				(xyz 0 0.4 0)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz -90 -0 -0)
+			)
+		)
 	)
 	(footprint "TestPoint:TestPoint_Pad_2.0x2.0mm"
 		(layer "B.Cu")
