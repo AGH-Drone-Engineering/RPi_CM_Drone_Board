@@ -5,10 +5,11 @@
 	(uuid "e63e39d7-6ac0-4ffd-8aa3-1841a4541b55")
 	(paper "A4")
 	(title_block
-		(title "Compute Module 5 IO Board - Top Level")
+		(title "Compute Module Drone Board")
+		(date "01.2026")
 		(rev "1")
-		(company "Copyright © 2024 Raspberry Pi Ltd.")
-		(comment 1 "www.raspberrypi.com")
+		(company "AGH Drone Engineering")
+		(comment 1 "Author: Piotr Kądziela")
 	)
 	(lib_symbols
 		(symbol "Connector:Screw_Terminal_01x02"

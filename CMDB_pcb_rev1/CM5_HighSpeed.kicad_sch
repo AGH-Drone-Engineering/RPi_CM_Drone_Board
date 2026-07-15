@@ -5,10 +5,11 @@
 	(uuid "3457afc5-3e4f-4220-81d1-b079f653a722")
 	(paper "A4")
 	(title_block
-		(title "Compute Module 5 IO Board - CM5 - Highspeed")
+		(title "Compute Module Drone Board")
+		(date "01.2026")
 		(rev "1")
-		(company "Copyright © 2024 Raspberry Pi Ltd.")
-		(comment 1 "www.raspberrypi.com")
+		(company "AGH Drone Engineering")
+		(comment 1 "Author: Piotr Kądziela")
 	)
 	(lib_symbols
 		(symbol "CM5IO:62674-161121ALF"

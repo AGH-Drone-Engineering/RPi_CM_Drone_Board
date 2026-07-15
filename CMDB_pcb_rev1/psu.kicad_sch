@@ -4,6 +4,13 @@
 	(generator_version "9.0")
 	(uuid "ab07f127-c1c0-40bd-8a7c-0e3f4f266576")
 	(paper "A4")
+	(title_block
+		(title "Compute Module Drone Board")
+		(date "01.2026")
+		(rev "1")
+		(company "AGH Drone Engineering")
+		(comment 1 "Author: Piotr Kądziela")
+	)
 	(lib_symbols
 		(symbol "CM5IO:AP64501SP-13"
 			(pin_names
