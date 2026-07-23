@@ -1,0 +1,3 @@
+[submodule "firmware_IARC_HAT/RFNet"]
+	path = firmware_IARC_HAT/RFNet
+	url = https://github.com/mbedded-projects/RFNet.git
