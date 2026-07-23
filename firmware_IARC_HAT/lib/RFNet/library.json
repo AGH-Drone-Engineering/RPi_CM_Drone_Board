@@ -1,0 +1,28 @@
+{
+  "name": "RFNet",
+  "version": "1.0.0",
+  "description": "Transport-agnostic RF networking middleware with transparent fragmentation, AES-GCM security, EU duty-cycle enforcement and P2P/mesh routing, behind a single RFNode facade.",
+  "keywords": "rf, lora, fsk, sx1262, cc1101, radiolib, mesh, routing, aes-gcm, encryption, duty-cycle, etsi, fragmentation, wireless, networking, p2p",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AGH-Drone-Engineering/RPi_CM_Drone_Board.git"
+  },
+  "authors": [
+    {
+      "name": "FalcO",
+      "maintainer": true
+    }
+  ],
+  "dependencies": {
+    "jgromes/RadioLib": "^7.4.0"
+  },
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": "RFNode.h",
+  "examples": [
+    "examples/*/*.cpp"
+  ],
+  "build": {
+    "srcDir": "src"
+  }
+}

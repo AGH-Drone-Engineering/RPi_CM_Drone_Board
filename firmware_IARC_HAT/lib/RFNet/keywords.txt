@@ -1,0 +1,101 @@
+#######################################
+# Syntax coloring map for RFNet
+#######################################
+
+#######################################
+# Datatypes / classes (KEYWORD1)
+#######################################
+
+RFNode	KEYWORD1
+RFNodeConfig	KEYWORD1
+RFSecurityConfig	KEYWORD1
+RFDutyCycleConfig	KEYWORD1
+RFMeshConfig	KEYWORD1
+RFReliabilityConfig	KEYWORD1
+RFNvConfig	KEYWORD1
+SendOptions	KEYWORD1
+SentInfo	KEYWORD1
+RxInfo	KEYWORD1
+PacketMode	KEYWORD1
+BeginStatus	KEYWORD1
+SendStatus	KEYWORD1
+TxFailReason	KEYWORD1
+
+# Radios
+SX1262LoRaRadio	KEYWORD1
+CC1101FSKRadio	KEYWORD1
+RfProfile	KEYWORD1
+
+# Ports (implement or inject your own)
+IRadio	KEYWORD1
+IRoutingStrategy	KEYWORD1
+ICypher	KEYWORD1
+IClock	KEYWORD1
+IOsal	KEYWORD1
+INVBackend	KEYWORD1
+
+# Routing strategies
+ManagedFloodingStrategy	KEYWORD1
+ManagedFloodingConfig	KEYWORD1
+StaticRoutingStrategy	KEYWORD1
+RoutingContext	KEYWORD1
+
+# Built-in port implementations
+DefaultCipher	KEYWORD1
+DefaultOsal	KEYWORD1
+DefaultClock	KEYWORD1
+DefaultNVBackend	KEYWORD1
+AesGcmSoft	KEYWORD1
+AesGcmMbedTls	KEYWORD1
+AesGcmStm32Hal	KEYWORD1
+EspClock	KEYWORD1
+PosixClock	KEYWORD1
+ZephyrClock	KEYWORD1
+NullClock	KEYWORD1
+PreferencesBackend	KEYWORD1
+EepromBackend	KEYWORD1
+ZephyrNvsBackend	KEYWORD1
+NullNVBackend	KEYWORD1
+FreeRtosOsal	KEYWORD1
+PosixOsal	KEYWORD1
+BaremetalOsal	KEYWORD1
+
+#######################################
+# Methods and functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+end	KEYWORD2
+onReceive	KEYWORD2
+onSendOk	KEYWORD2
+onSendFail	KEYWORD2
+send	KEYWORD2
+sendAck	KEYWORD2
+sendBroadcast	KEYWORD2
+startWorkerTask	KEYWORD2
+poll	KEYWORD2
+getDutyCycleWaitMs	KEYWORD2
+None	KEYWORD2
+FromKey	KEYWORD2
+FromPassword	KEYWORD2
+FromCipher	KEYWORD2
+setTransmitProfile	KEYWORD2
+selectChannel	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+ADDR_BROADCAST	LITERAL1
+RF_RSSI_UNKNOWN	LITERAL1
+P2P	LITERAL1
+Mesh	LITERAL1
+HIGH_SPEED	LITERAL1
+NORMAL	LITERAL1
+LONG_RANGE	LITERAL1
+EU868_CH0	LITERAL1
+EU868_CH1	LITERAL1
+EU868_CH2	LITERAL1
+EU869_DC10	LITERAL1
+EU433_CH0	LITERAL1
+US915_CH0	LITERAL1
