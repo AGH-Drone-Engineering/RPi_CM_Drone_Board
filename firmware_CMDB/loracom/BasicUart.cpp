@@ -7,7 +7,7 @@
 
 #include <cerrno>
 #include <cstring>
-#include <stdexcept>
+#include <system_error>
 #include <utility>
 
 namespace {
@@ -25,7 +25,8 @@ speed_t toTermiosSpeed(uint32_t baudrate)
         case 115200: return B115200;
         case 230400: return B230400;
         default:
-            throw std::runtime_error("BasicUart: unsupported baud rate " + std::to_string(baudrate));
+            throw std::system_error(EINVAL, std::generic_category(),
+                "BasicUart: unsupported baud rate " + std::to_string(baudrate));
     }
 }
 
@@ -37,7 +38,8 @@ tcflag_t toTermiosDataBits(uint8_t dataBits)
         case 7: return CS7;
         case 8: return CS8;
         default:
-            throw std::runtime_error("BasicUart: unsupported data bit count " + std::to_string(dataBits));
+            throw std::system_error(EINVAL, std::generic_category(),
+                "BasicUart: unsupported data bit count " + std::to_string(dataBits));
     }
 }
 
@@ -48,18 +50,23 @@ BasicUart::BasicUart(const std::string& device, uint32_t baudrate, uint8_t dataB
 {
     fd_ = ::open(device.c_str(), O_RDWR | O_NOCTTY);
     if (fd_ < 0) {
-        throw std::runtime_error("BasicUart: failed to open " + device + ": " + std::strerror(errno));
+        throw std::system_error(errno, std::generic_category(), "BasicUart: failed to open " + device);
     }
 
     termios opt{};
     if (::tcgetattr(fd_, &opt) != 0) {
+        int err = errno;
         ::close(fd_);
-        throw std::runtime_error("BasicUart: tcgetattr failed on " + device + ": " + std::strerror(errno));
+        throw std::system_error(err, std::generic_category(), "BasicUart: tcgetattr failed on " + device);
     }
 
     speed_t speed = toTermiosSpeed(baudrate);
-    ::cfsetispeed(&opt, speed);
-    ::cfsetospeed(&opt, speed);
+    if (::cfsetispeed(&opt, speed) != 0 || ::cfsetospeed(&opt, speed) != 0) {
+        int err = errno;
+        ::close(fd_);
+        throw std::system_error(err, std::generic_category(),
+            "BasicUart: cfsetispeed/cfsetospeed failed on " + device);
+    }
 
     ::cfmakeraw(&opt);
 
@@ -100,11 +107,16 @@ BasicUart::BasicUart(const std::string& device, uint32_t baudrate, uint8_t dataB
     opt.c_cc[VTIME] = 0;
 
     if (::tcsetattr(fd_, TCSANOW, &opt) != 0) {
+        int err = errno;
         ::close(fd_);
-        throw std::runtime_error("BasicUart: tcsetattr failed on " + device + ": " + std::strerror(errno));
+        throw std::system_error(err, std::generic_category(), "BasicUart: tcsetattr failed on " + device);
     }
 
-    ::tcflush(fd_, TCIOFLUSH);
+    if (::tcflush(fd_, TCIOFLUSH) != 0) {
+        int err = errno;
+        ::close(fd_);
+        throw std::system_error(err, std::generic_category(), "BasicUart: tcflush failed on " + device);
+    }
 }
 
 BasicUart::~BasicUart()
@@ -130,7 +142,7 @@ BasicUart& BasicUart::operator=(BasicUart&& other) noexcept
     return *this;
 }
 
-bool BasicUart::write(const std::vector<uint8_t>& data)
+void BasicUart::write(const std::vector<uint8_t>& data)
 {
     size_t total = 0;
     while (total < data.size()) {
@@ -139,18 +151,27 @@ bool BasicUart::write(const std::vector<uint8_t>& data)
             if (errno == EINTR) {
                 continue;
             }
-            return false;
+            throw std::system_error(errno, std::generic_category(), "BasicUart: write failed");
         }
         total += static_cast<size_t>(written);
     }
-    return true;
 }
 
 std::vector<uint8_t> BasicUart::read()
 {
     uint8_t buffer[512];
-    ssize_t bytesRead = ::read(fd_, buffer, sizeof(buffer));
-    if (bytesRead <= 0) {
+    ssize_t bytesRead;
+    for (;;) {
+        bytesRead = ::read(fd_, buffer, sizeof(buffer));
+        if (bytesRead < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw std::system_error(errno, std::generic_category(), "BasicUart: read failed");
+        }
+        break;
+    }
+    if (bytesRead == 0) {
         return {};
     }
     return std::vector<uint8_t>(buffer, buffer + bytesRead);
@@ -162,9 +183,19 @@ std::vector<uint8_t> BasicUart::read(uint32_t timeoutMs)
     pfd.fd = fd_;
     pfd.events = POLLIN;
 
-    int ret = ::poll(&pfd, 1, static_cast<int>(timeoutMs));
-    if (ret <= 0) {
-        return {}; // timeout or poll error
+    int ret;
+    for (;;) {
+        ret = ::poll(&pfd, 1, static_cast<int>(timeoutMs));
+        if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw std::system_error(errno, std::generic_category(), "BasicUart: poll failed");
+        }
+        break;
+    }
+    if (ret == 0) {
+        return {}; // timeout - not an error
     }
     return read();
 }

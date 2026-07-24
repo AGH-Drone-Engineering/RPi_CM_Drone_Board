@@ -1,6 +1,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -10,6 +11,10 @@
 
 constexpr uint32_t DEFAULT_ACK_TIMEOUT_MS = 250;
 constexpr uint32_t DEFAULT_MAX_RETRIES = 3;
+
+// Max SENDMSG payload size. Frames must fit in the ESP's default 256-byte
+// Arduino UART RX buffer: 256 - 6 (header) - 2 (checksum) = 248.
+constexpr size_t MAX_MESSAGE_SIZE = 248;
 
 enum class TransmissionType : uint8_t
 {
@@ -34,12 +39,24 @@ public:
             uint32_t timeoutMs = DEFAULT_ACK_TIMEOUT_MS, uint32_t maxRetries = DEFAULT_MAX_RETRIES)
         : BasicUart(device, baudrate), timeoutMs_(timeoutMs), maxRetries_(maxRetries) {};
 
+    // Both throw std::system_error (errno-coded, std::generic_category()) on
+    // failure - e.g. EREMOTEIO (no response after retries), or whatever errno
+    // the underlying write()/read() call reported. sendTransmission() returns
+    // true on success (it never returns false - failure is always an
+    // exception, kept as bool for interface stability). getTransmission()
+    // does NOT throw for a legitimately empty message/config queue - that's
+    // std::nullopt, not an error.
+    //
+    // Does NOT check payload size against MAX_MESSAGE_SIZE - that's the
+    // caller's job (see main.cpp's send()), so callers can decide whether to
+    // enforce it (e.g. --force).
     bool sendTransmission(TransmissionType type, uint8_t destId, const std::string& payload);
-    std::optional<Transmission> getTransmission(TransmissionType type);
 
-    // True if the last sendTransmission()/getTransmission() call gave up after
-    // exhausting retries (as opposed to e.g. a legitimately empty message queue).
-    bool lastCallFailed() const { return lastCallFailed_; }
+    // force=true accepts a reply even if its checksum doesn't match, instead
+    // of treating it as corrupted (silently dropping it and waiting for a
+    // retransmit, per protocol). Use to recover a message despite a known-bad
+    // link.
+    std::optional<Transmission> getTransmission(TransmissionType type, bool force = false);
 
 private:
     struct ParsedFrame
@@ -63,11 +80,12 @@ private:
     // bad, waits an additional 2*timeoutMs_ for the far end to notice we never
     // ACKed and retransmit on its own, instead of immediately resending our
     // request. Returns nullopt if nothing usable arrives either way.
-    std::optional<ParsedFrame> awaitReply();
+    // force=true skips all of that and returns the first frame as received,
+    // checksum failure or not.
+    std::optional<ParsedFrame> awaitReply(bool force = false);
 
-    bool sendAck();
+    void sendAck();
 
     uint32_t timeoutMs_;
     uint32_t maxRetries_;
-    bool lastCallFailed_ = false;
 };

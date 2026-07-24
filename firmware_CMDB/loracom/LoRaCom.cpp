@@ -1,5 +1,8 @@
 #include "LoRaCom.h"
 
+#include <cerrno>
+#include <system_error>
+
 // TYPE[1] | SENDER_ID[1] | LENGTH[4, little-endian] | PAYLOAD[LENGTH] | CHECKSUM[2, little-endian]
 std::vector<uint8_t> LoRaCom::buildFrame(TransmissionType type, uint8_t id, const std::string& payload)
 {
@@ -47,9 +50,12 @@ std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame(uint32_t timeoutMs)
     return frame;
 }
 
-std::optional<LoRaCom::ParsedFrame> LoRaCom::awaitReply()
+std::optional<LoRaCom::ParsedFrame> LoRaCom::awaitReply(bool force)
 {
     std::optional<ParsedFrame> reply = readFrame(timeoutMs_);
+    if (force) {
+        return reply; // accept it as-is, bad checksum or not
+    }
     if (reply && !reply->checksumValid) {
         // Corrupted frame - the far end likely already replied and will
         // retransmit on its own once it notices we never ACKed. Wait longer
@@ -62,9 +68,9 @@ std::optional<LoRaCom::ParsedFrame> LoRaCom::awaitReply()
     return reply;
 }
 
-bool LoRaCom::sendAck()
+void LoRaCom::sendAck()
 {
-    return this->write(buildFrame(TransmissionType::ACK, 0, ""));
+    this->write(buildFrame(TransmissionType::ACK, 0, ""));
 }
 
 // CRC-16/XMODEM: poly 0x1021, init 0x0000, no reflect, no xorout.
@@ -93,14 +99,10 @@ bool LoRaCom::verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum
 
 bool LoRaCom::sendTransmission(TransmissionType type, uint8_t destId, const std::string& payload)
 {
-    lastCallFailed_ = false;
     std::vector<uint8_t> frame = buildFrame(type, destId, payload);
 
     for (uint32_t attempt = 0; attempt <= maxRetries_; ++attempt) {
-        if (!this->write(frame)) {
-            lastCallFailed_ = true;
-            return false;
-        }
+        this->write(frame);
 
         std::optional<ParsedFrame> reply = awaitReply();
         if (reply && reply->type == TransmissionType::ACK) {
@@ -108,27 +110,22 @@ bool LoRaCom::sendTransmission(TransmissionType type, uint8_t destId, const std:
         }
         // timeout, corrupted frame, or unexpected reply -> retransmit
     }
-    lastCallFailed_ = true;
-    return false;
+    throw std::system_error(EREMOTEIO, std::generic_category(), "sendTransmission");
 }
 
-std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type)
+std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type, bool force)
 {
-    lastCallFailed_ = false;
     std::vector<uint8_t> request = buildFrame(type, 0, "");
 
     for (uint32_t attempt = 0; attempt <= maxRetries_; ++attempt) {
-        if (!this->write(request)) {
-            lastCallFailed_ = true;
-            return std::nullopt;
-        }
+        this->write(request);
 
-        std::optional<ParsedFrame> reply = awaitReply();
+        std::optional<ParsedFrame> reply = awaitReply(force);
         if (!reply) {
             continue; // timeout -> retransmit request
         }
         if (reply->type == TransmissionType::ACK) {
-            return std::nullopt; // nothing available - not a failure
+            return std::nullopt; // queue empty
         }
         if (reply->type != type) {
             continue; // unexpected reply -> retransmit request
@@ -137,6 +134,5 @@ std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type)
         sendAck();
         return Transmission{reply->senderId, reply->payload};
     }
-    lastCallFailed_ = true;
-    return std::nullopt;
+    throw std::system_error(EREMOTEIO, std::generic_category(), "getTransmission");
 }

@@ -6,15 +6,17 @@ Software running on the Raspberry Pi Compute Module side of the drone board, tal
 
 CLI tool for talking to the ESP: send a message, read a queued message, or request its configuration. Device, timeout and retry behavior are all configurable — run `loracom --help` for the full flag reference. For the wire protocol itself, see `loracom/protocol.adoc`.
 
+`--message` is limited to 248 bytes — the ESP's default 256-byte UART RX buffer minus the 8-byte frame overhead (header + checksum). A longer message is rejected with `-EMSGSIZE`, no bytes sent. Use `--force` to ignore that check.
+
+All errors are returned as negative `errno` codes (see `errno(3)`) — e.g. `-ENODATA` (queue empty), `-EMSGSIZE` (message too long), `-EREMOTEIO` (no response from the HAT after retries), `-EINVAL` (bad arguments).
+
 === Using loracom from Python
 
-`loracom` is a plain CLI tool, so Python just shells out to it via `subprocess`. `--get` is a one-shot poll, not blocking, so receiving means looping it.
+`loracom` is a plain CLI tool, so Python just shells out to it via `subprocess` (which blocks until it exits). `--get` checks the current queue once and returns — it doesn't wait for a future message to arrive — so receiving needs a polling loop on the Python side.
 
 [source,python]
 ----
-import ctypes
-import subprocess
-import os
+import os, ctypes, errno, subprocess
 
 # check drone ID
 ID = os.environ["CMDB_ID"]
@@ -22,14 +24,14 @@ ID = os.environ["CMDB_ID"]
 # send
 subprocess.run(["loracom", "--send=5", "--message=hello from the RPi"])
 
-# receive (exit codes arrive as unsigned bytes; cast back to signed)
+# receive with error handling
 while True:
     result = subprocess.run(["loracom", "--get"], capture_output=True, text=True)
-    rc = ctypes.c_int8(result.returncode).value
-    if rc == -1:    # queue empty
+    rc = ctypes.c_int8(result.returncode).value # exit codes arrive as unsigned bytes in Python
+    if rc == -errno.ENODATA:   # queue empty
         continue
-    if rc < -1:     # error
-        raise RuntimeError(f"loracom --get failed: {result.stderr.strip()}")
+    if rc < 0:                 # any other error (e.g. -errno.EREMOTEIO)
+        raise RuntimeError(f"loracom --get failed with errno {-rc}: {result.stderr.strip()}")
 
     sender_id = rc
     msg = result.stdout.rstrip("\n")
@@ -46,7 +48,7 @@ while True:
 The ESP's config always includes `CMDB_ID` (its own address). Two more variables are recognized if present among the propagated ones:
 
 * `CMDB_GETCONF_TIMESTAMP` — a unix timestamp; if set, `bootstrap.sh` sets the system clock to it. *Not implemented on the ESP side yet* — the ESP doesn't send this variable today, so this is currently a no-op.
-* `CMDB_POST_INIT_CMD` — a command run after propagation, with all propagated variables already in its environment.
+* `CMDB_POST_INIT_CMD` — a command run after propagation, with all propagated variables already in its environment. Currently unused.
 
 Both of these are best-effort: a failure is logged and ignored, it doesn't fail the boot.
 
