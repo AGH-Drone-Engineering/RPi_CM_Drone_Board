@@ -1,0 +1,95 @@
+= LoRaCom Protocol
+
+UART protocol between the host (Raspberry Pi) and the LoRa device (ESP). All exchanges are request/response and host-initiated.
+
+THIS IS NOT AN IARC COORDINATE, COMMAND, ETC. EXCHANGE PROTOCOL!
+
+== Frame format
+
+`TYPE(1) | SENDER_ID(1) | LENGTH(4, little-endian) | PAYLOAD(LENGTH) | CHECKSUM(2, little-endian)`
+
+Frames with no payload (requests, ACK) set `LENGTH=0` and omit `PAYLOAD`.
+
+== Message types
+
+[cols="1,3"]
+|===
+|Type |Meaning
+
+|`GETMSG`  |Request/return the oldest queued message.
+|`SENDMSG` |Send a message to another node.
+|`GETCONF` |Request device configuration.
+|`ACK`     |Acknowledge receipt.
+|===
+
+== Exchanges
+
+=== GETMSG, message queued
+----
+-> GETMSG(len=0, id=0)
+<- GETMSG(len=N, id=senderId) + payload
+-> ACK
+----
+
+=== GETMSG, queue empty
+----
+-> GETMSG(len=0, id=0)
+<- ACK
+----
+
+=== SENDMSG
+----
+-> SENDMSG(len=N, id=destId) + payload
+<- ACK
+----
+ACK confirms receipt by the device only, not delivery over LoRa.
+
+=== GETCONF
+Same exchange as GETMSG with a message queued, but `id` is always `0`.
+----
+-> GETCONF(len=0, id=0)
+<- GETCONF(len=N, id=0) + payload
+-> ACK
+----
+Payload is a fixed format: whitespace-separated `VARIABLE=VALUE` pairs. By default it contains a single variable, `ID`, set to the ESP's own address.
+
+== Checksum
+
+CHECKSUM is a CRC16 computed over the whole message: TYPE, SENDER_ID and PAYLOAD. If it doesn't match, the frame is silently dropped — no response, no ACK. The sender detects this by the absence of a reply within the timeout and must retransmit.
+
+Example, corrupted GETMSG:
+----
+-> GETMSG(len=0, id=0)
+<- GETMSG(len=N, id=senderId) + payload  [bad checksum]
+
+[host drops the package]
+...timeout...
+
+<- GETMSG(len=N, id=senderId) + payload  [retransmit]
+-> ACK
+----
+
+----
+Host   -> GETMSG(len=0, id=0)  [bad checksum]
+
+[device drops package]
+...timeout...
+
+Host   -> GETMSG(len=0, id=0)  [retransmit]
+Device <- GETMSG(len=N, id=senderId) + payload
+Host   -> ACK
+
+----
+
+== UART settings
+
+8N1, no flow control:
+
+[cols="1,1"]
+|===
+|Baud rate   |115200
+|Data bits   |8
+|Parity      |None
+|Stop bits   |1
+|Flow control|None
+|===

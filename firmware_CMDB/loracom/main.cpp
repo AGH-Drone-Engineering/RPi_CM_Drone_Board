@@ -4,7 +4,7 @@
 #include <string_view>
 
 #include "ArgParser.h"
-#include "UartHandler.h"
+#include "LoRaCom.h"
 
 constexpr std::string_view HELP_MSG = 
 R"(Usage: loracom [options])
@@ -31,9 +31,12 @@ Options:
                         The return code will be 0 on success, or -1 on failure.
 )";
 
-int send(uint8_t destId, const std::string_view& message);
-int get();
-int requestConfig();
+constexpr std::string_view DEFAULT_DEVICE = "/dev/serial0";
+constexpr uint32_t DEFAULT_BAUDRATE = 115200;
+
+int send(LoRaCom& loraCom, uint8_t destId, const std::string_view& message);
+int get(LoRaCom& loraCom);
+int requestConfig(LoRaCom& loraCom);
 
 int main(int argc, char *argv[])
 {
@@ -41,8 +44,10 @@ int main(int argc, char *argv[])
 
     if (parser.hasOption("--help", "-h")) {
         std::cout << HELP_MSG << std::endl;
+        return 0;
     }
-    else if (parser.hasOption("--send", "-s") || parser.hasOption("--message", "-m")) {
+
+    if (parser.hasOption("--send", "-s") || parser.hasOption("--message", "-m")) {
         auto destId = parser.getArgValueInt<uint8_t>("--send", "-s");
         auto messageOpt = parser.getArgValueStr("--message", "-m");
         if (!destId || !messageOpt) {
@@ -50,30 +55,33 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        return send(*destId, *messageOpt);
+        LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE);
+        return send(loraCom, *destId, *messageOpt);
     }
     else if (parser.hasOption("--get", "-g")) {
-        return get();
+        LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE);
+        return get(loraCom);
     }
     else if (parser.hasOption("--config", "-c")) {
-        return requestConfig();
+        LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE);
+        return requestConfig(loraCom);
     }
 
     return 0;
 }
 
-int send(uint8_t destId, const std::string_view& message)
+int send(LoRaCom& loraCom, uint8_t destId, const std::string_view& message)
 {
-    if (!sendTransmission(TransmissionType::SENDMSG, destId, std::string(message))) {
+    if (!loraCom.sendTransmission(TransmissionType::SENDMSG, destId, std::string(message))) {
         std::cerr << "Error: Failed to send message." << std::endl;
         return -1;
     }
     return 0;
 }
 
-int get()
+int get(LoRaCom& loraCom)
 {
-    auto received = getTransmission(TransmissionType::GETMSG);
+    auto received = loraCom.getTransmission(TransmissionType::GETMSG);
     if (!received) {
         return -1;
     }
@@ -81,9 +89,9 @@ int get()
     return static_cast<int>(received->senderId);
 }
 
-int requestConfig()
+int requestConfig(LoRaCom& loraCom)
 {
-    auto received = getTransmission(TransmissionType::CONFREQ);
+    auto received = loraCom.getTransmission(TransmissionType::CONFREQ);
     if (!received) {
         return -1;
     }

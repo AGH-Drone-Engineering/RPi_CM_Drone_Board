@@ -1,42 +1,36 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
-#include <fcntl.h>
-#include <unistd.h>
-#include <termios.h>
+enum class Parity : uint8_t
+{
+    None,
+    Even,
+    Odd,
+};
 
+// Thin RAII wrapper around a POSIX serial device (open/configure/read/write/close).
 class BasicUart
 {
 public:
-    BasicUart(const std::string& device, uint32_t baudrate);
+    BasicUart(const std::string& device,
+              uint32_t baudrate = 115200,
+              uint8_t dataBits = 8,
+              Parity parity = Parity::None,
+              uint8_t stopBits = 1,
+              bool flowControl = false);
     ~BasicUart();
+
+    BasicUart(const BasicUart&) = delete;
+    BasicUart& operator=(const BasicUart&) = delete;
+    BasicUart(BasicUart&& other) noexcept;
+    BasicUart& operator=(BasicUart&& other) noexcept;
 
     bool write(const std::vector<uint8_t>& data);
     std::vector<uint8_t> read();
-}
 
-
-// BasicUart implementation
-
-BasicUart::BasicUart(const std::string& device, uint32_t baudrate)
-{
-    termios opt{};
-
-}
-
-BasicUart::~BasicUart()
-{
-    // Close UART file descriptor
-}
-
-bool BasicUart::write(const std::vector<uint8_t>& data)
-{
-    // Write data to UART
-}
-
-std::vector<uint8_t> BasicUart::read()
-{
-    // Read data from UART and return as vector
-}
+private:
+    int fd_;
+};
