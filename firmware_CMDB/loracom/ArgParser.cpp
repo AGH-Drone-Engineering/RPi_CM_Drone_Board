@@ -1,5 +1,7 @@
 #include "ArgParser.h"
 
+#include <limits>
+
 ArgParser::ArgParser(int argc, char *argv[])
 {
     for (int i = 0; i < argc; ++i) {
@@ -15,47 +17,49 @@ bool ArgParser::hasOption(const std::string_view& longOpt, const std::string_vie
     return false;
 }
 
-std::optional<std::string_view> ArgParser::getArgValueStr(const std::string_view& longOpt, 
+std::optional<std::string_view> ArgParser::getArgValueStr(const std::string_view& longOpt,
                                                           const std::string_view& shortOpt)
 {
+    const std::string longPrefix = std::string(longOpt) + "=";
+    const std::string shortPrefix = std::string(shortOpt) + "=";
     for (const auto& arg : args_) {
-        if (arg.starts_with(longOpt + "=")) {
-            return arg.substr(longOpt.size() + 1);
+        if (arg.starts_with(longPrefix)) {
+            return arg.substr(longPrefix.size());
         }
-        if (arg.starts_with(shortOpt + "=")) {
-            return arg.substr(shortOpt.size() + 1);
+        if (arg.starts_with(shortPrefix)) {
+            return arg.substr(shortPrefix.size());
         }
     }
     return std::nullopt;
 }
 
-template<ArgParser::IntegerT T1, ArgParser::IntegerT T2>
+template<IntegerT T1, IntegerT T2>
 T1 safeCastInteger(T2 value)
 {
-    if (value < static_cast<T2>(std::numeric_limits<T1>::min()) || 
+    if (value < static_cast<T2>(std::numeric_limits<T1>::min()) ||
         value > static_cast<T2>(std::numeric_limits<T1>::max())) {
         throw ArgParser::ParserException{"Integer value out of range for target type"};
     }
     return static_cast<T1>(value);
 }
 
-template<ArgParser::IntegerT T>
-std::optional<T> ArgParser::getArgValueInt(const std::string_view& longOpt, 
+template<IntegerT T>
+std::optional<T> ArgParser::getArgValueInt(const std::string_view& longOpt,
                                            const std::string_view& shortOpt)
 {
     auto strOpt = getArgValueStr(longOpt, shortOpt);
     if (!strOpt) return std::nullopt;
     try {
-        if constexpr UIntegerT<T> {
-            uint64_t value = std::stoull(*strOpt);
+        if constexpr (UIntegerT<T>) {
+            uint64_t value = std::stoull(std::string(*strOpt));
             return safeCastInteger<T>(value);
         }
-        else if constexpr SIntegerT<T> {
-            uint64_t value = std::stoll(*strOpt);
+        else {
+            int64_t value = std::stoll(std::string(*strOpt));
             return safeCastInteger<T>(value);
         }
-    } catch (const std::exception& e) {
-        throw ParserException{"Invalid integer value for option " + std::string(longOpt)};
+    } catch (const std::exception&) {
+        throw ArgParser::ParserException{"Invalid integer value for option " + std::string(longOpt)};
     }
 }
 

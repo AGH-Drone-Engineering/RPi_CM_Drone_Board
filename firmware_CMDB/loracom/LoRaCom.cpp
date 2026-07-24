@@ -1,53 +1,111 @@
-#include "UartManager.h"
+#include "LoRaCom.h"
 
-bool LoRaCom::sendTransmission(TransmissionType type, uint8_t senderId, const std::string& payload)
+// TYPE[1] | SENDER_ID[1] | LENGTH[4, little-endian] | PAYLOAD[LENGTH] | CHECKSUM[2, little-endian]
+std::vector<uint8_t> LoRaCom::buildFrame(TransmissionType type, uint8_t id, const std::string& payload)
 {
-    uint8_t ackBuffer[2];
+    std::vector<uint8_t> crcInput;
+    crcInput.reserve(2 + payload.size());
+    crcInput.push_back(static_cast<uint8_t>(type));
+    crcInput.push_back(id);
+    crcInput.insert(crcInput.end(), payload.begin(), payload.end());
+    uint16_t checksum = getCRC(crcInput);
 
-    // TYPE[1] | SENDER_ID[1] | LENGTH[4] | PAYLOAD[LEN] | CHECKSUM[2]
-    for (int retryCount = 0; retryCount < MAX_RETRIES; ++retryCount) {
-        std::vector<uint8_t> data;
-        uint16_t checksum = 0; // TODO
-        data.reserve(sizeof(TransmissionHeader) + payload.size() + sizeof(uint16_t));
+    std::vector<uint8_t> frame;
+    frame.reserve(6 + payload.size() + 2);
+    frame.push_back(static_cast<uint8_t>(type));
+    frame.push_back(id);
+    frame.push_back(payload.size() & 0xFF);
+    frame.push_back((payload.size() >> 8) & 0xFF);
+    frame.push_back((payload.size() >> 16) & 0xFF);
+    frame.push_back((payload.size() >> 24) & 0xFF);
+    frame.insert(frame.end(), payload.begin(), payload.end());
+    frame.push_back(checksum & 0xFF);
+    frame.push_back((checksum >> 8) & 0xFF);
+    return frame;
+}
 
-        data.push_back(TransmissionType::SENDMSG);
-        data.push_back(transmission.senderId);
-        data.push_back((payload.size() >> 24) & 0xFF);
-        data.push_back((payload.size() >> 16) & 0xFF);
-        data.push_back((payload.size() >> 8) & 0xFF);
-        data.push_back(payload.size() & 0xFF);
-        data.insert(data.end(), payload.begin(), payload.end());
-        data.push_back((checksum >> 8) & 0xFF);
-        data.push_back(checksum & 0xFF);
+std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame()
+{
+    // TODO: BasicUart::read() has no timeout parameter yet, so ACK_TIMEOUT_MS
+    // is not actually enforced here - this blocks until something arrives.
+    std::vector<uint8_t> raw = this->read();
 
-        if (!this->write(data)) {
-            return false;
-        }
-
-        // Wait for ACK
-        this->read(ackBuffer, 2);
+    if (raw.size() < 8) {
+        return std::nullopt;
     }
+
+    uint32_t length = raw[2] | (raw[3] << 8) | (raw[4] << 16) | (raw[5] << 24);
+    if (raw.size() != 6 + length + 2) {
+        return std::nullopt;
+    }
+
+    uint16_t receivedChecksum = raw[6 + length] | (raw[6 + length + 1] << 8);
+
+    ParsedFrame frame;
+    frame.type = static_cast<TransmissionType>(raw[0]);
+    frame.senderId = raw[1];
+    frame.payload = std::string(raw.begin() + 6, raw.begin() + 6 + length);
+    frame.checksumValid = verifyChecksum(frame, receivedChecksum);
+    return frame;
+}
+
+bool LoRaCom::sendAck()
+{
+    return this->write(buildFrame(TransmissionType::ACK, 0, ""));
+}
+
+uint16_t LoRaCom::getCRC(const std::vector<uint8_t>& data)
+{
+    // TODO: implement CRC16 over `data`.
+    return 0;
+}
+
+bool LoRaCom::verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum)
+{
+    // TODO: verify receivedChecksum against a CRC16 over TYPE, SENDER_ID and PAYLOAD.
     return true;
 }
 
-std::pair<uint8_t, std::vector<uint8_t>> LoRaCom::getTransmission(TransmissionType type)
+bool LoRaCom::sendTransmission(TransmissionType type, uint8_t destId, const std::string& payload)
 {
-    this->write({static_cast<uint8_t>(type)});
+    std::vector<uint8_t> frame = buildFrame(type, destId, payload);
 
-    uint8_t header[6];
-    this->read(header, 6);
-    TransmissionType receivedType = static_cast<TransmissionType>(header[0]);
-    uint8_t senderId = header[1];
-    uint32_t length = (header[2] << 24) | (header[3] << 16) | (header[4] << 8) | header[5];
+    for (uint32_t retry = 0; retry < MAX_RETRIES; ++retry) {
+        if (!this->write(frame)) {
+            return false;
+        }
 
-    if (receivedType != type) {
-        throw std::runtime_error("Received unexpected transmission type");
+        std::optional<ParsedFrame> reply = readFrame();
+        if (reply && reply->checksumValid && reply->type == TransmissionType::ACK) {
+            return true;
+        }
+        // timeout, corrupted frame, or unexpected reply -> retransmit
     }
+    return false;
+}
 
-    std::vector<uint8_t> payload(length);
-    this->read(payload.data(), length);
+std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type)
+{
+    std::vector<uint8_t> request = buildFrame(type, 0, "");
 
-    this->send({static_cast<uint8_t>(TransmissionType::ACK)});
+    for (uint32_t retry = 0; retry < MAX_RETRIES; ++retry) {
+        if (!this->write(request)) {
+            return std::nullopt;
+        }
 
-    return {senderId, payload};
+        std::optional<ParsedFrame> reply = readFrame();
+        if (!reply || !reply->checksumValid) {
+            continue; // timeout or corrupted frame -> retransmit request
+        }
+        if (reply->type == TransmissionType::ACK) {
+            return std::nullopt; // nothing available
+        }
+        if (reply->type != type) {
+            continue; // unexpected reply -> retransmit request
+        }
+
+        sendAck();
+        return Transmission{reply->senderId, reply->payload};
+    }
+    return std::nullopt;
 }
