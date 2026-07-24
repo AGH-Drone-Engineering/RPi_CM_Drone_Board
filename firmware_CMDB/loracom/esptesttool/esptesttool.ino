@@ -7,10 +7,9 @@
 //     TX happens - it's purely a loopback so a later GETMSG echoes it back.
 //   - GETMSG: replies with the oldest queued message, or ACK if empty.
 //   - GETCONF: always replies with the hardcoded "CMDB_ID=4".
-//   - CHECKSUM is written as 0x0000 on every reply, matching loracom's
-//     current CRC stub (LoRaCom::getCRC() always returns 0) - the host
-//     doesn't verify it yet either. Update both together once real CRC16
-//     lands on both sides.
+//   - CHECKSUM is a real CRC-16/XMODEM (poly 0x1021, init 0x0000) over
+//     TYPE+SENDER_ID+PAYLOAD, matching LoRaCom::getCRC() /
+//     UartRfBridge::crc16() byte-for-byte.
 //
 // This is a simple, synchronous mock (no device-side retransmission on a
 // lost ACK) - good enough for exercising loracom's send/get/config paths,
@@ -22,6 +21,12 @@
 //   RPi GPIO8 -> ESP32-S3 IO18 (UART_RX_PIN below)
 //   RPi GPIO9 <- ESP32-S3 IO17 (UART_TX_PIN below)
 // 8N1 @ 115200, matching BasicUart's defaults in loracom.
+//
+// Uncomment to make every outgoing reply have a 50% chance of a fault (half
+// of that: dropped entirely/no response, half: sent with a corrupted
+// checksum) - for exercising loracom's retry/timeout/--force paths against
+// a link that isn't perfectly clean.
+// #define SIMULATE_FLAKY_LINK
 
 #include <Arduino.h>
 
@@ -76,8 +81,41 @@ bool dequeue(QueuedMessage& out)
     return true;
 }
 
+// CRC-16/XMODEM: poly 0x1021, init 0x0000, no reflect, no xorout.
+// Must match firmware_CMDB/loracom/LoRaCom.cpp::getCRC byte-for-byte.
+uint16_t crc16Update(uint16_t crc, uint8_t byte)
+{
+    crc ^= static_cast<uint16_t>(byte) << 8;
+    for (int i = 0; i < 8; ++i) {
+        crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+    }
+    return crc;
+}
+
+uint16_t crc16(uint8_t type, uint8_t senderId, const String& payload)
+{
+    uint16_t crc = 0x0000;
+    crc = crc16Update(crc, type);
+    crc = crc16Update(crc, senderId);
+    for (unsigned int i = 0; i < payload.length(); ++i) {
+        crc = crc16Update(crc, static_cast<uint8_t>(payload[i]));
+    }
+    return crc;
+}
+
 void sendFrame(uint8_t type, uint8_t senderId, const String& payload)
 {
+    uint16_t checksum = crc16(type, senderId, payload);
+
+#ifdef SIMULATE_FLAKY_LINK
+    if (random(2) == 0) {
+        if (random(2) == 0) {
+            return; // simulate no response
+        }
+        checksum ^= 0xFFFF; // simulate a corrupted checksum
+    }
+#endif
+
     uint32_t length = payload.length();
     uint8_t header[6] = {
         type, senderId,
@@ -90,8 +128,11 @@ void sendFrame(uint8_t type, uint8_t senderId, const String& payload)
     if (length > 0) {
         Serial1.write(reinterpret_cast<const uint8_t*>(payload.c_str()), length);
     }
-    uint8_t checksum[2] = {0, 0};
-    Serial1.write(checksum, sizeof(checksum));
+    uint8_t checksumBytes[2] = {
+        static_cast<uint8_t>(checksum & 0xFF),
+        static_cast<uint8_t>((checksum >> 8) & 0xFF),
+    };
+    Serial1.write(checksumBytes, sizeof(checksumBytes));
 }
 
 void handleGetMsg()
