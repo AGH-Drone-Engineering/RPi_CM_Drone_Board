@@ -12,24 +12,26 @@ CLI tool for talking to the ESP: send a message, read a queued message, or reque
 
 [source,python]
 ----
+import ctypes
 import subprocess
 import os
 
 # check drone ID
-ID = os.environ(['CMDB_ID'])
+ID = os.environ["CMDB_ID"]
 
 # send
 subprocess.run(["loracom", "--send=5", "--message=hello from the RPi"])
 
-# receive (exit codes are unsigned bytes here, so -1 shows up as 255)
+# receive (exit codes arrive as unsigned bytes; cast back to signed)
 while True:
     result = subprocess.run(["loracom", "--get"], capture_output=True, text=True)
-    if result.returncode == 255:    # -1: queue empty
+    rc = ctypes.c_int8(result.returncode).value
+    if rc == -1:    # queue empty
         continue
-    if result.returncode > 127:     # negative return values, error
+    if rc < -1:     # error
         raise RuntimeError(f"loracom --get failed: {result.stderr.strip()}")
-        
-    sender_id = result.returncode
+
+    sender_id = rc
     msg = result.stdout.rstrip("\n")
     # Handle msg...
 ----
