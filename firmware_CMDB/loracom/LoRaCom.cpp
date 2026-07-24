@@ -67,16 +67,28 @@ bool LoRaCom::sendAck()
     return this->write(buildFrame(TransmissionType::ACK, 0, ""));
 }
 
+// CRC-16/XMODEM: poly 0x1021, init 0x0000, no reflect, no xorout.
+// Must match firmware_IARC_HAT/src/node/UartRfBridge.cpp::crc16 byte-for-byte.
 uint16_t LoRaCom::getCRC(const std::vector<uint8_t>& data)
 {
-    // TODO: implement CRC16 over `data`.
-    return 0;
+    uint16_t crc = 0x0000;
+    for (uint8_t byte : data) {
+        crc ^= static_cast<uint16_t>(byte) << 8;
+        for (int i = 0; i < 8; ++i) {
+            crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+        }
+    }
+    return crc;
 }
 
 bool LoRaCom::verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum)
 {
-    // TODO: verify receivedChecksum against a CRC16 over TYPE, SENDER_ID and PAYLOAD.
-    return true;
+    std::vector<uint8_t> data;
+    data.reserve(2 + frame.payload.size());
+    data.push_back(static_cast<uint8_t>(frame.type));
+    data.push_back(frame.senderId);
+    data.insert(data.end(), frame.payload.begin(), frame.payload.end());
+    return getCRC(data) == receivedChecksum;
 }
 
 bool LoRaCom::sendTransmission(TransmissionType type, uint8_t destId, const std::string& payload)
