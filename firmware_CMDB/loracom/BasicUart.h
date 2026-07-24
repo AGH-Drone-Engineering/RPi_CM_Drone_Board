@@ -31,6 +31,10 @@ public:
     bool write(const std::vector<uint8_t>& data);
     std::vector<uint8_t> read();
 
+    // Waits up to timeoutMs for data to arrive, then reads whatever is available.
+    // Returns {} on timeout (or a read error).
+    std::vector<uint8_t> read(uint32_t timeoutMs);
+
 private:
     int fd_;
 };

@@ -1,6 +1,7 @@
 #include "BasicUart.h"
 
 #include <fcntl.h>
+#include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -153,4 +154,17 @@ std::vector<uint8_t> BasicUart::read()
         return {};
     }
     return std::vector<uint8_t>(buffer, buffer + bytesRead);
+}
+
+std::vector<uint8_t> BasicUart::read(uint32_t timeoutMs)
+{
+    struct pollfd pfd{};
+    pfd.fd = fd_;
+    pfd.events = POLLIN;
+
+    int ret = ::poll(&pfd, 1, static_cast<int>(timeoutMs));
+    if (ret <= 0) {
+        return {}; // timeout or poll error
+    }
+    return read();
 }

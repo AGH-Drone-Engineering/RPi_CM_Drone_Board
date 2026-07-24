@@ -24,11 +24,9 @@ std::vector<uint8_t> LoRaCom::buildFrame(TransmissionType type, uint8_t id, cons
     return frame;
 }
 
-std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame()
+std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame(uint32_t timeoutMs)
 {
-    // TODO: BasicUart::read() has no timeout parameter yet, so ACK_TIMEOUT_MS
-    // is not actually enforced here - this blocks until something arrives.
-    std::vector<uint8_t> raw = this->read();
+    std::vector<uint8_t> raw = this->read(timeoutMs);
 
     if (raw.size() < 8) {
         return std::nullopt;
@@ -47,6 +45,21 @@ std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame()
     frame.payload = std::string(raw.begin() + 6, raw.begin() + 6 + length);
     frame.checksumValid = verifyChecksum(frame, receivedChecksum);
     return frame;
+}
+
+std::optional<LoRaCom::ParsedFrame> LoRaCom::awaitReply()
+{
+    std::optional<ParsedFrame> reply = readFrame(timeoutMs_);
+    if (reply && !reply->checksumValid) {
+        // Corrupted frame - the far end likely already replied and will
+        // retransmit on its own once it notices we never ACKed. Wait longer
+        // for that retransmission instead of immediately resending our request.
+        reply = readFrame(2 * timeoutMs_);
+    }
+    if (reply && !reply->checksumValid) {
+        reply = std::nullopt;
+    }
+    return reply;
 }
 
 bool LoRaCom::sendAck()
@@ -68,37 +81,42 @@ bool LoRaCom::verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum
 
 bool LoRaCom::sendTransmission(TransmissionType type, uint8_t destId, const std::string& payload)
 {
+    lastCallFailed_ = false;
     std::vector<uint8_t> frame = buildFrame(type, destId, payload);
 
-    for (uint32_t retry = 0; retry < MAX_RETRIES; ++retry) {
+    for (uint32_t attempt = 0; attempt <= maxRetries_; ++attempt) {
         if (!this->write(frame)) {
+            lastCallFailed_ = true;
             return false;
         }
 
-        std::optional<ParsedFrame> reply = readFrame();
-        if (reply && reply->checksumValid && reply->type == TransmissionType::ACK) {
+        std::optional<ParsedFrame> reply = awaitReply();
+        if (reply && reply->type == TransmissionType::ACK) {
             return true;
         }
         // timeout, corrupted frame, or unexpected reply -> retransmit
     }
+    lastCallFailed_ = true;
     return false;
 }
 
 std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type)
 {
+    lastCallFailed_ = false;
     std::vector<uint8_t> request = buildFrame(type, 0, "");
 
-    for (uint32_t retry = 0; retry < MAX_RETRIES; ++retry) {
+    for (uint32_t attempt = 0; attempt <= maxRetries_; ++attempt) {
         if (!this->write(request)) {
+            lastCallFailed_ = true;
             return std::nullopt;
         }
 
-        std::optional<ParsedFrame> reply = readFrame();
-        if (!reply || !reply->checksumValid) {
-            continue; // timeout or corrupted frame -> retransmit request
+        std::optional<ParsedFrame> reply = awaitReply();
+        if (!reply) {
+            continue; // timeout -> retransmit request
         }
         if (reply->type == TransmissionType::ACK) {
-            return std::nullopt; // nothing available
+            return std::nullopt; // nothing available - not a failure
         }
         if (reply->type != type) {
             continue; // unexpected reply -> retransmit request
@@ -107,5 +125,6 @@ std::optional<Transmission> LoRaCom::getTransmission(TransmissionType type)
         sendAck();
         return Transmission{reply->senderId, reply->payload};
     }
+    lastCallFailed_ = true;
     return std::nullopt;
 }

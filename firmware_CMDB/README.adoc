@@ -1,0 +1,60 @@
+= CMDB Firmware Tools
+
+Software running on the Raspberry Pi Compute Module side of the drone board, talking to the onboard ESP over LoRa/UART.
+
+== loracom
+
+CLI tool for talking to the ESP: send a message, read a queued message, or request its configuration. Device, timeout and retry behavior are all configurable — run `loracom --help` for the full flag reference. For the wire protocol itself, see `loracom/protocol.adoc`.
+
+=== Using loracom from Python
+
+`loracom` is a plain CLI tool, so Python just shells out to it via `subprocess`. `--get` is a one-shot poll, not blocking, so receiving means looping it.
+
+[source,python]
+----
+import subprocess
+import os
+
+# check drone ID
+ID = os.environ(['CMDB_ID'])
+
+# send
+subprocess.run(["loracom", "--send=5", "--message=hello from the RPi"])
+
+# receive (exit codes are unsigned bytes here, so -1 shows up as 255)
+while True:
+    result = subprocess.run(["loracom", "--get"], capture_output=True, text=True)
+    if result.returncode == 255:    # -1: queue empty
+        continue
+    if result.returncode > 127:     # negative return values, error
+        raise RuntimeError(f"loracom --get failed: {result.stderr.strip()}")
+        
+    sender_id = result.returncode
+    msg = result.stdout.rstrip("\n")
+    # Handle msg...
+----
+
+== bootstrap
+
+`cmdb-bootstrap.service` runs `bootstrap/bootstrap.sh` early at boot. It calls `loracom --config` and publishes every returned `KEY=VALUE` pair as an environment variable, two ways:
+
+* `systemctl set-environment` — picked up by systemd services started afterwards.
+* A self-owned block in `/etc/environment` — picked up by PAM sessions (e.g. SSH logins).
+
+The ESP's config always includes `CMDB_ID` (its own address). Two more variables are recognized if present among the propagated ones:
+
+* `CMDB_GETCONF_TIMESTAMP` — a unix timestamp; if set, `bootstrap.sh` sets the system clock to it. *Not implemented on the ESP side yet* — the ESP doesn't send this variable today, so this is currently a no-op.
+* `CMDB_POST_INIT_CMD` — a command run after propagation, with all propagated variables already in its environment.
+
+Both of these are best-effort: a failure is logged and ignored, it doesn't fail the boot.
+
+== Installation
+
+From `firmware_CMDB`, as root:
+
+[source,sh]
+----
+sudo ./install.sh
+----
+
+This builds `loracom` (if it isn't built already), installs both tools to `/opt/cmdb/bin`, puts that directory on `PATH` (via `/etc/profile.d/cmdb.sh`), and installs + enables `cmdb-bootstrap.service` (runs on the next boot).

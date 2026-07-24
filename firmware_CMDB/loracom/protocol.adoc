@@ -51,7 +51,7 @@ Same exchange as GETMSG with a message queued, but `id` is always `0`.
 <- GETCONF(len=N, id=0) + payload
 -> ACK
 ----
-Payload is a fixed format: whitespace-separated `VARIABLE=VALUE` pairs. By default it contains a single variable, `ID`, set to the ESP's own address.
+Payload is a fixed format: whitespace-separated `VARIABLE=VALUE` pairs. By default it contains a single variable, `CMDB_ID`, set to the ESP's own address.
 
 == Checksum
 
