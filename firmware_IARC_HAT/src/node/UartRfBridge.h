@@ -33,7 +33,23 @@ private:
         std::vector<uint8_t> payload;
     };
 
+    // An outgoing SENDMSG waiting to be handed to RFNode, or currently in flight.
+    // Owns its payload: for len > RF_MAX_PAYLOAD, RFNet fragments lazily and
+    // keeps only a pointer to the caller's buffer (see LargeTxSession's
+    // contract), reading later fragments long after the UART frame that carried
+    // them is gone. The bytes must therefore outlive the send, not the parse.
+    struct PendingTx
+    {
+        uint8_t dst = 0;
+        std::vector<uint8_t> payload;
+    };
+
     static constexpr size_t MAX_QUEUED_MESSAGES = 128;
+
+    // Only one send is in flight at a time, so this bounds how many host
+    // SENDMSGs may be buffered behind it. Each entry can hold up to
+    // RF_MAX_FRAGMENTED_PAYLOAD bytes, so keep it small.
+    static constexpr size_t MAX_QUEUED_TX = 4;
 
     RFNode &_node;
     HardwareSerial &_uart;
@@ -41,6 +57,18 @@ private:
 
     QueueHandle_t _rxQueue;
     QueuedMessage *_pendingGetmsg = nullptr;
+
+    // TX side. _txQueue is written by poll()'s task (handleSendmsg) and read by
+    // the same task (pumpTx), so it exists for bounding, not for cross-thread
+    // handoff. _txDone is the one genuinely shared bit: set by the RF worker
+    // task from onSendOk/onSendFail, consumed by pumpTx.
+    QueueHandle_t _txQueue;
+    PendingTx *_inFlightTx = nullptr;
+    bool _txDone = false;
+
+    // Frees a completed send and submits the next queued one. Called from
+    // poll(), i.e. never while a fragment source buffer is still in use.
+    void pumpTx();
 
     // -- UART frame parser state machine --
     enum class ParseState

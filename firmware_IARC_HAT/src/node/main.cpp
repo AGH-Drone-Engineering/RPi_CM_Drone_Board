@@ -48,24 +48,50 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define RPI_UART_RX 44
 #define RPI_UART_BAUD 115200
 
-#define MY_ADDR 0x01
+// Node address is set by the five solder jumpers JP1..JP5 (schematic labels
+// ADDR1/2/4/8/16, pcb_IARC_HAT/comm.kicad_sch), least significant bit first.
+// Each jumper ties its GPIO either to the ADDR_HIGH rail (+3.3V through 1K) or
+// to GND, so a bridged-high jumper reads 1. The jumpers ship open, hence
+// INPUT_PULLDOWN below: an unbridged jumper must read a stable 0 rather than
+// float. Range is therefore 0..31, and 0 means "no jumpers set" - not a usable
+// address (RFNodeConfig requires [0x01, 0xFE]).
+static const uint8_t ADDR_PINS[] = {10, 11, 12, 13, 14};
+static constexpr size_t ADDR_BITS = sizeof(ADDR_PINS) / sizeof(ADDR_PINS[0]);
 
 static SPIClass loraSPI;
 static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU868_CH0,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
+// addr is left at its default here and filled in from the jumpers in setup() -
+// reading GPIOs during static init would run before the Arduino core is up.
 static RFNodeConfig nodeCfg = []()
 {
     RFNodeConfig c;
-    c.addr = MY_ADDR;
     c.mode = PacketMode::P2P;
     c.security = RFSecurityConfig::FromPassword("bajer");
     c.dutyCycle.enabled = false;
     return c;
 }();
 
-static RFNode node(radio, nodeCfg);
-static UartRfBridge bridge(node, Serial0, MY_ADDR);
+// Both need the jumper-derived address, so they're constructed in setup() once
+// it's known; loop() reaches them through these.
+static RFNode *node = nullptr;
+static UartRfBridge *bridge = nullptr;
+
+static uint8_t readAddrJumpers()
+{
+    for (uint8_t pin : ADDR_PINS)
+        pinMode(pin, INPUT_PULLDOWN);
+    delay(1); // let the pulldown settle before sampling
+
+    uint8_t addr = 0;
+    for (size_t bit = 0; bit < ADDR_BITS; ++bit)
+    {
+        if (digitalRead(ADDR_PINS[bit]) == HIGH)
+            addr |= static_cast<uint8_t>(1u << bit);
+    }
+    return addr;
+}
 
 void setup()
 {
@@ -77,28 +103,44 @@ void setup()
     Serial0.begin(RPI_UART_BAUD, SERIAL_8N1, RPI_UART_RX, RPI_UART_TX);
     delay(2000);
 
+    uint8_t myAddr = readAddrJumpers();
+    if (myAddr == 0)
+    {
+        // All five jumpers open/low. Starting with addr 0 would just fail in
+        // begin() with a generic invalid_config, so name the real cause.
+        LOG_E("main", "boot_error reason=addr_jumpers_unset (JP1..JP5 all low, need addr 1..31)");
+        while (1)
+            delay(1000);
+    }
+    nodeCfg.addr = myAddr;
+
     loraSPI.begin(LORA_CLK, LORA_MISO, LORA_MOSI, LORA_CS);
 
+    static RFNode nodeObj(radio, nodeCfg);
+    static UartRfBridge bridgeObj(nodeObj, Serial0, myAddr);
+    node = &nodeObj;
+    bridge = &bridgeObj;
+
     // Wire RFNode events to the bridge (handler bodies live in UartRfBridge).
-    node.onReceive(UartRfBridge::onReceiveTrampoline, &bridge);
-    node.onSendOk(UartRfBridge::onSendOkTrampoline, &bridge);
-    node.onSendFail(UartRfBridge::onSendFailTrampoline, &bridge);
+    node->onReceive(UartRfBridge::onReceiveTrampoline, bridge);
+    node->onSendOk(UartRfBridge::onSendOkTrampoline, bridge);
+    node->onSendFail(UartRfBridge::onSendFailTrampoline, bridge);
 
     radio.setTransmitProfile(RadioLibLoRaRadio<SX1262>::RfProfile::HIGH_SPEED);
 
-    BeginStatus bs = node.begin();
+    BeginStatus bs = node->begin();
     if (bs != BeginStatus::OK)
     {
         LOG_E("main", "boot_error reason=%s", beginStatusToStr(bs));
         while (1)
             delay(1000);
     }
-    node.startWorkerTask();
+    node->startWorkerTask();
 
-    LOG_I("main", "ready addr=0x%02X", MY_ADDR);
+    LOG_I("main", "ready addr=0x%02X (from jumpers)", myAddr);
 }
 
 void loop()
 {
-    bridge.poll();
+    bridge->poll();
 }

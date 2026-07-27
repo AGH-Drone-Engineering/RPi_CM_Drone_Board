@@ -7,6 +7,7 @@ UartRfBridge::UartRfBridge(RFNode &node, HardwareSerial &uart, uint8_t myAddr)
     : _node(node), _uart(uart), _myAddr(myAddr)
 {
     _rxQueue = xQueueCreate(MAX_QUEUED_MESSAGES, sizeof(QueuedMessage *));
+    _txQueue = xQueueCreate(MAX_QUEUED_TX, sizeof(PendingTx *));
 }
 
 // ── RFNode event trampolines ────────────────────────────────────────────────
@@ -39,14 +40,18 @@ void UartRfBridge::onReceive(const RxInfo &info, const uint8_t *data, size_t len
     }
 }
 
+// Both of these run on the RF worker task. They only publish "the payload is no
+// longer needed" - pumpTx() does the freeing on the poll() task.
 void UartRfBridge::onSendOk(const SentInfo &info)
 {
     LOG_I(LOG_MODULE, "tx_ok to=0x%02X seq=%lu len=%u", info.to, (unsigned long)info.seq, (unsigned)info.payloadLen);
+    __atomic_store_n(&_txDone, true, __ATOMIC_RELEASE);
 }
 
 void UartRfBridge::onSendFail(const SentInfo &info, TxFailReason reason)
 {
     LOG_W(LOG_MODULE, "tx_fail to=0x%02X seq=%lu reason=%d", info.to, (unsigned long)info.seq, (int)reason);
+    __atomic_store_n(&_txDone, true, __ATOMIC_RELEASE);
 }
 
 // ── CRC16 (CRC-16/XMODEM: poly 0x1021, init 0x0000, no reflect, no xorout) ──
@@ -79,6 +84,8 @@ void UartRfBridge::poll()
         _lastByteMs = millis();
         feed(static_cast<uint8_t>(_uart.read()));
     }
+
+    pumpTx();
 }
 
 void UartRfBridge::resetParser()
@@ -209,15 +216,61 @@ void UartRfBridge::handleGetmsg()
 void UartRfBridge::handleSendmsg(uint8_t destId, const uint8_t *payload, uint32_t len)
 {
     sendAckFrame();
-    SendStatus st = _node.sendAck(destId, payload, len);
-    if (st != SendStatus::OK)
-        LOG_W(LOG_MODULE, "sendmsg_queue_failed to=0x%02X status=%d", destId, (int)st);
+
+    if (len == 0)
+        return; // RFNet rejects empty sends anyway
+
+    // Copy out of the parser's frame buffer: `payload` dies with the feed()
+    // call, while a fragmented send reads from it for as long as the session
+    // runs. pumpTx() hands it over and keeps it alive until then.
+    PendingTx *tx = new PendingTx();
+    tx->dst = destId;
+    tx->payload.assign(payload, payload + len);
+
+    if (xQueueSend(_txQueue, &tx, 0) != pdTRUE)
+    {
+        LOG_W(LOG_MODULE, "tx_queue_full, dropping message to=0x%02X len=%u",
+              destId, (unsigned)len);
+        delete tx;
+    }
+}
+
+void UartRfBridge::pumpTx()
+{
+    if (_inFlightTx)
+    {
+        // The payload is still feeding the fragmenter until the send completes.
+        if (!__atomic_load_n(&_txDone, __ATOMIC_ACQUIRE))
+            return;
+
+        delete _inFlightTx;
+        _inFlightTx = nullptr;
+    }
+
+    PendingTx *next = nullptr;
+    while (xQueueReceive(_txQueue, &next, 0) == pdTRUE)
+    {
+        // Cleared before the send so a completion can't be missed.
+        __atomic_store_n(&_txDone, false, __ATOMIC_RELEASE);
+
+        SendStatus st = _node.sendAck(next->dst, next->payload.data(), next->payload.size());
+        if (st == SendStatus::OK)
+        {
+            _inFlightTx = next; // freed once onSendOk/onSendFail reports back
+            return;
+        }
+
+        // A rejected send never reaches a callback, so nothing will free it and
+        // nothing will unblock the queue - drop it here and take the next one.
+        LOG_W(LOG_MODULE, "sendmsg_queue_failed to=0x%02X status=%d", next->dst, (int)st);
+        delete next;
+    }
 }
 
 void UartRfBridge::handleGetconf()
 {
     char buf[32];
-    int n = snprintf(buf, sizeof(buf), "CMDB_ID=4");
+    int n = snprintf(buf, sizeof(buf), "CMDB_ID=%u", static_cast<unsigned>(_myAddr));
     sendFrame(FrameType::GETCONF, 0, reinterpret_cast<const uint8_t *>(buf), static_cast<uint32_t>(n));
 }
 
