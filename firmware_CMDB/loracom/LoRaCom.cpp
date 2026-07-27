@@ -1,6 +1,7 @@
 #include "LoRaCom.h"
 
 #include <cerrno>
+#include <chrono>
 #include <system_error>
 
 // TYPE[1] | SENDER_ID[1] | LENGTH[4, little-endian] | PAYLOAD[LENGTH] | CHECKSUM[2, little-endian]
@@ -29,25 +30,55 @@ std::vector<uint8_t> LoRaCom::buildFrame(TransmissionType type, uint8_t id, cons
 
 std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame(uint32_t timeoutMs)
 {
-    std::vector<uint8_t> raw = this->read(timeoutMs);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
 
-    if (raw.size() < 8) {
-        return std::nullopt;
+    for (;;) {
+        // Try to carve a complete frame out of what we already have.
+        while (rxBuf_.size() >= 6) {
+            uint32_t length = rxBuf_[2] | (rxBuf_[3] << 8) | (rxBuf_[4] << 16) | (rxBuf_[5] << 24);
+
+            if (length > MAX_FRAME_PAYLOAD) {
+                // Not a plausible header - we're mid-garbage. Drop one byte and
+                // try to resync on the next one, same as the HAT's parser does.
+                rxBuf_.erase(rxBuf_.begin());
+                continue;
+            }
+
+            size_t frameSize = 6 + length + 2;
+            if (rxBuf_.size() < frameSize) {
+                break; // header looks sane, keep reading the rest
+            }
+
+            uint16_t receivedChecksum = rxBuf_[6 + length] | (rxBuf_[6 + length + 1] << 8);
+
+            ParsedFrame frame;
+            frame.type = static_cast<TransmissionType>(rxBuf_[0]);
+            frame.senderId = rxBuf_[1];
+            frame.payload = std::string(rxBuf_.begin() + 6, rxBuf_.begin() + 6 + length);
+            frame.checksumValid = verifyChecksum(frame, receivedChecksum);
+
+            // Keep anything that followed this frame for the next call.
+            rxBuf_.erase(rxBuf_.begin(), rxBuf_.begin() + frameSize);
+            return frame;
+        }
+
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now());
+        std::vector<uint8_t> chunk;
+        if (remaining.count() > 0) {
+            chunk = this->read(static_cast<uint32_t>(remaining.count()));
+        }
+
+        if (chunk.empty()) {
+            // Timed out (or EOF) with the line quiet mid-frame. Those leftover
+            // bytes will never complete - drop them so they can't be glued onto
+            // the next reply and corrupt it. Mirrors the HAT parser's
+            // FRAME_IDLE_TIMEOUT_MS reset.
+            rxBuf_.clear();
+            return std::nullopt;
+        }
+        rxBuf_.insert(rxBuf_.end(), chunk.begin(), chunk.end());
     }
-
-    uint32_t length = raw[2] | (raw[3] << 8) | (raw[4] << 16) | (raw[5] << 24);
-    if (raw.size() != 6 + length + 2) {
-        return std::nullopt;
-    }
-
-    uint16_t receivedChecksum = raw[6 + length] | (raw[6 + length + 1] << 8);
-
-    ParsedFrame frame;
-    frame.type = static_cast<TransmissionType>(raw[0]);
-    frame.senderId = raw[1];
-    frame.payload = std::string(raw.begin() + 6, raw.begin() + 6 + length);
-    frame.checksumValid = verifyChecksum(frame, receivedChecksum);
-    return frame;
 }
 
 std::optional<LoRaCom::ParsedFrame> LoRaCom::awaitReply(bool force)

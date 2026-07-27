@@ -59,7 +59,7 @@ milliseconds to complete, but if UART is unstable and retransmission occurs,
 send/get call may take over a second (depending on selected timeout).
 )";
 
-constexpr std::string_view DEFAULT_DEVICE = "/dev/serial0";
+constexpr std::string_view DEFAULT_DEVICE = "/dev/ttyAMA3";
 constexpr uint32_t DEFAULT_BAUDRATE = 115200;
 
 int send(LoRaCom& loraCom, uint8_t destId, const std::string_view& message, bool force);

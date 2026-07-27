@@ -16,6 +16,12 @@ constexpr uint32_t DEFAULT_MAX_RETRIES = 3;
 // Arduino UART RX buffer: 256 - 6 (header) - 2 (checksum) = 248.
 constexpr size_t MAX_MESSAGE_SIZE = 248;
 
+// Largest payload length a reply frame may declare. Mirrors the HAT's
+// RF_MAX_FRAGMENTED_PAYLOAD (firmware_IARC_HAT/lib/RFNet/src/core/RFConfig.h) -
+// anything above it means we're desynced on the byte stream and not looking at
+// a real frame header.
+constexpr size_t MAX_FRAME_PAYLOAD = 3072;
+
 enum class TransmissionType : uint8_t
 {
     CONFREQ = 'C',
@@ -74,6 +80,14 @@ private:
     bool verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum);
 
     std::vector<uint8_t> buildFrame(TransmissionType type, uint8_t id, const std::string& payload);
+
+    // Reads until one complete frame has been accumulated, or until timeoutMs
+    // has elapsed in total (the timeout bounds the whole frame, not each
+    // individual read). A single read() only returns whatever happens to sit in
+    // the kernel buffer at that instant - the HAT emits a frame as three
+    // separate writes (header/payload/checksum), so anything but the shortest
+    // frames routinely arrives in pieces. Bytes past the end of the frame stay
+    // in rxBuf_ for the next call, so back-to-back frames don't get lost.
     std::optional<ParsedFrame> readFrame(uint32_t timeoutMs);
 
     // Waits up to timeoutMs_ for a reply. If a frame arrives but its checksum is
@@ -88,4 +102,7 @@ private:
 
     uint32_t timeoutMs_;
     uint32_t maxRetries_;
+
+    // Bytes read from UART but not yet consumed by a parsed frame.
+    std::vector<uint8_t> rxBuf_;
 };

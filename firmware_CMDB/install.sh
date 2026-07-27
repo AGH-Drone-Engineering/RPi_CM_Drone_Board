@@ -9,9 +9,9 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 INSTALL_DIR=/opt/cmdb/bin
 
-if [ ! -x "$SCRIPT_DIR/loracom/bin/loracom" ]; then
-    make -C "$SCRIPT_DIR/loracom"
-fi
+# Always run make - it's incremental, and skipping it when a binary happens to
+# exist installs a stale one built from older sources.
+make -C "$SCRIPT_DIR/loracom"
 
 mkdir -p "$INSTALL_DIR"
 install -m 755 "$SCRIPT_DIR/loracom/bin/loracom" "$INSTALL_DIR/loracom"
