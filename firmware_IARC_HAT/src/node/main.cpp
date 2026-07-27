@@ -43,6 +43,10 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define LORA_MOSI 41
 #define LORA_MISO 42
 
+// Killswitch pin
+#define KILLSWITCH_FC_CTL 1
+#define KILLSWITCH_PSU_CTL 6
+
 // RPi <-> ESP link: hardware UART0 (Serial0)
 #define RPI_UART_TX 43
 #define RPI_UART_RX 44
@@ -97,6 +101,12 @@ void setup()
 {
     Serial.begin(115200); // USB-CDC: boot/debug diagnostics only
     Logger::setWriteFn(&logToUsbCdc);
+
+    pinMode(KILLSWITCH_FC_CTL, OUTPUT);
+    pinMode(KILLSWITCH_PSU_CTL, OUTPUT);
+
+    digitalWrite(KILLSWITCH_FC_CTL, HIGH);
+    digitalWrite(KILLSWITCH_PSU_CTL, HIGH);
 
     // Default RX ring buffer can't hold a full max-size protocol frame
     Serial0.setRxBufferSize(4096);
