@@ -4,7 +4,9 @@
 # Records what this board is, then hands off to the install-*.sh scripts, which
 # do the actual work and are each usable on their own:
 #   install-utils.sh    apt/pip packages, VNC, Claude Code
-#   install-cam.sh      IMX900 on CAM0
+#   install-cam.sh      FRAMOS IMX900 on CAM0 - drivers, libcamera, overlay.
+#                       Also holds the kernel packages: the sensor modules are
+#                       out-of-tree and stop loading when the kernel moves.
 #   install-loracom.sh  UART3 + the CMDB tools
 #
 # Everything here is idempotent: re-running it is a no-op except for package
@@ -57,3 +59,10 @@ echo "system-setup.sh: CMDB_HARDWARE_REVISION=$HW_REVISION CMDB_HARDWARE_TYPE=$H
 "$SCRIPT_DIR/install-loracom.sh"
 
 echo "system-setup.sh: done - reboot for the UART3 and camera overlays to take effect."
+# Surfaced here because it is the one board-wide side effect of provisioning:
+# the camera's out-of-tree modules only load against the kernel they were built
+# for, so install-cam.sh pins it. Anyone reading only this script's output would
+# otherwise not learn that the board no longer takes kernel updates.
+if command -v apt-mark >/dev/null 2>&1 && [ -n "$(apt-mark showhold 2>/dev/null)" ]; then
+    echo "system-setup.sh: kernel updates are held (see install-cam.sh) - 'apt-mark showhold' lists them"
+fi

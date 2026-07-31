@@ -84,7 +84,58 @@ Installs the apt packages we build and work with (`screen`, `build-essential`, `
 
 === install-cam.sh
 
-Adds the *IMX900* overlay on *CAM0*, and turns `camera_auto_detect` off — autodetect and an explicit sensor overlay fight over the same CSI port.
+Installs the whole camera stack for the *FRAMOS FSM:GO IMX900* on *CAM0*. The stock Raspberry Pi camera stack doesn't know this sensor, so all three layers get replaced:
+
+. *Kernel* — installs the FRAMOS out-of-tree sensor and GMSL modules into `/lib/modules/<ver>/updates/drivers` and their device tree overlays next to `config.txt`, then *holds the kernel packages* (see below).
+. *Userspace* — https://github.com/framosimaging/framos-libcamera[framos-libcamera], a libcamera fork carrying the IMX900 CamHelper and tuning files, plus `rpicam-apps` rebuilt against it, both under `/usr/local`. Replaces the distro `rpicam-apps` package. Skipped once installed — `CMDB_REBUILD_LIBCAMERA=1` forces a reinstall.
+. *Firmware* — writes `dtoverlay=fr_imx900,cam0` to `config.txt` and turns `camera_auto_detect` off, since autodetect and an explicit sensor overlay fight over the same CSI port. Any hand-added `fr_imx900` line outside the block is commented out too, so the overlay can't be loaded twice.
+
+After a reboot, `rpicam-hello --list-cameras` should show the sensor as `fr_imx900 [2064x1552 12-bit RGGB]`, with five modes under each of `SRGGB8` / `SRGGB10_CSI2P` / `SRGGB12_CSI2P`.
+
+==== When it says "No cameras available"
+
+The FSM:GO module carries a `tca6408` GPIO expander at `0x20` that `fr_imx900` depends on, and it is flaky on a cold start. If `dmesg` shows
+
+[source]
+----
+pca953x 10-0020: probe with driver pca953x failed with error -121
+i2c 10-001a: deferred probe pending: i2c: supplier 10-0020 not ready
+----
+
+then the expander NAKed (`-121` is `EREMOTEIO`) and the sensor never finished probing. Check `i2cdetect -y 10` first:
+
+* *Devices answer* (`0x1a`, `0x20`, `0x36`, `0x56` show up) — a transient I²C glitch. `echo 10-0020 | sudo tee /sys/bus/i2c/drivers/pca953x/bind` completes the deferred probe and the camera appears without a reboot. It has come and gone between boots on the same board; wrap the rebind in a systemd unit if it becomes routine.
+* *Bus completely empty* — nothing on the module is answering, and the rebind fails with the same `-121`. That's a cable or module-power problem, not software. This is the state `raspi-usa-1` was in as of 2026-08-01.
+
+Layers 1 and 2 ship *prebuilt* in `cam-prebuilt/`, so a normal install copies files and takes seconds instead of the ~12 minutes the meson builds cost. Both halves are pinned — the modules to one exact kernel build, the `/usr/local` payload to one Debian release — so each is checked against the running system and *falls back to building from source* when it doesn't match. That fallback is what lets a board be provisioned from an image whose kernel isn't the one the payload was built on. `CMDB_CAM_FROM_SOURCE=1` ignores the payload entirely.
+
+==== The kernel hold
+
+The modules are pinned to one kernel build by their `vermagic`. An upgraded kernel gets its own empty module directory alongside the old one, so after the next reboot the sensor just doesn't probe — with nothing in the logs pointing at apt. `install-cam.sh` therefore runs `apt-mark hold` on the kernel meta-packages it finds installed (`linux-image-rpi-2712`, `linux-image-rpi-v8` and the matching `linux-headers-*`, or `raspberrypi-kernel*` on older images). `CMDB_HOLD_KERNEL=0` skips it.
+
+The source fallback is *not* protection against this — nothing re-runs `install-cam.sh` at boot, so the board stays without a camera until somebody notices and runs it again. The hold is what prevents that; the fallback only makes the recovery cheap (just the modules rebuild — the `/usr/local` payload is pinned to the OS release, not the kernel). Nor is any of this a consequence of shipping prebuilt modules: without DKMS, modules built from source on the board are pinned to their kernel identically, and building on the board only helps at install time.
+
+The held packages are *meta*-packages. The versioned ones (`linux-image-6.18.34+rpt-rpi-2712`) never upgrade in place — every kernel is its own package — so holding those would accomplish nothing; what carries a board forward is the meta's `Depends` flipping to the next version. The hold only blocks apt: `rpi-update` pulls kernels straight from GitHub, and reflashing the image obviously bypasses it.
+
+To move to a newer kernel deliberately: `apt-mark unhold` the packages the script listed, `apt upgrade`, reboot, re-run `install-cam.sh` (which rebuilds the modules and re-applies the hold), and run `cam-prebuilt/make-prebuilt.sh` if that kernel is the one to ship.
+
+The source path needs the kernel headers (`install-utils.sh`) and `dtc`, which it installs if missing; it clones framos-libcamera at the pinned branch `framos_v0.5.2+rpt20250903` — that fork is 16 MB of sources we carry no patches against, so it isn't vendored. Drop a checkout at `firmware_CMDB/framos-libcamera` to run the source path without reaching GitHub.
+
+==== cam-prebuilt/
+
+The prebuilt payload: `modules/fr_*.ko.xz`, `overlays/fr_*.dtbo`, `usrlocal.tar.gz`, and a `manifest` recording the kernel, arch and OS release they were built on — that's what `install-cam.sh` checks — plus the apt packages the payload needs at runtime, derived from the binaries themselves rather than hand-maintained, so regenerating on a new Debian release can't leave the consumer asking for the old release's sonames. Regenerate with `cam-prebuilt/make-prebuilt.sh` on a board where the stack was built from source; see `cam-prebuilt/README.md` for what is and isn't safe to touch (short version: nothing is stripped, because stripping an IPA module invalidates the signature libcamera checks at load time).
+
+Overlays are plain DTBs with nothing pinning them to a kernel or an OS release, so those are used even on the source path — which is why `dtc` is normally not needed at all.
+
+==== framos-rpi-drivers/
+
+A vendored copy of https://github.com/framosimaging/framos-rpi-drivers[framos-rpi-drivers] (`v1.1.1`, branch `framos_20250916`), *patched* — which is why it's carried in-tree instead of cloned.
+
+Without the patch *full resolution does not start at all* — `Format mismatch`, `Failed to start media pipeline: -22`. Upstream's `fr_imx900.c` declares a different Bayer order per mode (RGGB for the full-res and crop modes, GBRG for the subsampled ones), but libcamera picks one native order for the whole sensor: the numerically lowest advertised mbus code, which is `SGBRG10_1X10`. So it programs the CFE as GBRG while the subdev reports `SRGGB12` for 2064x1552, and the pipeline refuses to start. The GBRG labels are wrong anyway — the sensor emits RGGB in every mode, confirmed by Bayer-phase correlation on raw DNGs and by the sensor's own test pattern — so the subsampled modes that did start came out with swapped colour channels.
+
+The patch drops the `SGBRG` entries, which makes `SRGGB10_1X10` the lowest code and settles libcamera on RGGB, and removes the `- 3` truncation so all five modes are exposed at each bit depth (upstream left binning crop reachable through neither code). Full detail, plus the caveats it introduces — notably that `--hflip`/`--vflip` stop working — in `framos-rpi-drivers/PATCHES.md`.
+
+Only the tracked sources are kept — no `.git`, and build output is gitignored. To refresh it from upstream, re-clone, re-apply the `fr_imx900.c` change and copy the tracked files back over.
 
 === install-loracom.sh
 

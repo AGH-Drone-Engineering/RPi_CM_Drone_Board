@@ -1,0 +1,13 @@
+# Kernel build output - install-cam.sh builds in place, in this directory.
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+*.d
+*.dtbo
+.tmp_versions/
+Module.symvers
+modules.order
+overlays/preprocessed/
