@@ -47,9 +47,15 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define KILLSWITCH_FC_CTL 1
 #define KILLSWITCH_PSU_CTL 6
 
-// RPi <-> ESP link: hardware UART0 (Serial0)
-#define RPI_UART_TX 43
-#define RPI_UART_RX 44
+// RPi <-> ESP link: hardware UART0 (Serial0), remapped off its default pins.
+// The module's native TXD0/RXD0 (IO43/IO44, pads 37/36) go to J4
+// (J_ESP_DBG_UART), not to the Pi - see pcb_IARC_HAT/comm.kicad_sch. The link
+// to the host runs over the 40-pin header J8: net GPIO8 (header pin 24, the
+// Pi's TXD3) lands on U1 pad 11 = IO18, and net GPIO9 (header pin 21, the Pi's
+// RXD3) on U1 pad 10 = IO17. That is UART3 on the Pi, i.e. /dev/ttyAMA3, which
+// is what loracom opens by default.
+#define RPI_UART_TX 17
+#define RPI_UART_RX 18
 #define RPI_UART_BAUD 115200
 
 // Node address is set by the five solder jumpers JP1..JP5 (schematic labels
