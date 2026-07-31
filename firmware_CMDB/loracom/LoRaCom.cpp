@@ -35,7 +35,13 @@ std::optional<LoRaCom::ParsedFrame> LoRaCom::readFrame(uint32_t timeoutMs)
     for (;;) {
         // Try to carve a complete frame out of what we already have.
         while (rxBuf_.size() >= 6) {
-            uint32_t length = rxBuf_[2] | (rxBuf_[3] << 8) | (rxBuf_[4] << 16) | (rxBuf_[5] << 24);
+            // Cast before shifting: a uint8_t promotes to int, so a top byte
+            // of 0x80 or more would overflow the sign bit - undefined
+            // behaviour, not the wrapped value the expression looks like.
+            uint32_t length = static_cast<uint32_t>(rxBuf_[2]) |
+                              (static_cast<uint32_t>(rxBuf_[3]) << 8) |
+                              (static_cast<uint32_t>(rxBuf_[4]) << 16) |
+                              (static_cast<uint32_t>(rxBuf_[5]) << 24);
 
             if (length > MAX_FRAME_PAYLOAD) {
                 // Not a plausible header - we're mid-garbage. Drop one byte and

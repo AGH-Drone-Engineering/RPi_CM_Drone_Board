@@ -73,10 +73,14 @@ private:
         bool checksumValid;
     };
 
-    // CRC16 over `data`. TODO: not implemented yet, always returns 0.
+    // CRC-16/XMODEM (poly 0x1021, init 0x0000, no reflect, no xorout) over
+    // `data`. Must match the HAT's implementation byte-for-byte, see
+    // firmware_IARC_HAT/src/node/UartRfBridge.cpp::crc16.
     uint16_t getCRC(const std::vector<uint8_t>& data);
 
-    // Verify frame's checksum against receivedChecksum. TODO: not implemented yet, always returns true.
+    // Recomputes the frame's checksum (over type, senderId and payload - the
+    // length field is not covered) and compares it against the one the frame
+    // carried.
     bool verifyChecksum(const ParsedFrame& frame, uint16_t receivedChecksum);
 
     std::vector<uint8_t> buildFrame(TransmissionType type, uint8_t id, const std::string& payload);

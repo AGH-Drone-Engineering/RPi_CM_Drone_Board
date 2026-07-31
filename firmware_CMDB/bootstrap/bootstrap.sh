@@ -24,14 +24,52 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MARKER_BEGIN="# BEGIN cmdb-bootstrap"
 MARKER_END="# END cmdb-bootstrap"
 
+# Temp files awaiting the mv that puts them in place, removed if we die in
+# between (set -e, a signal) so no stray /etc/environment.XXXXXX is left
+# behind. A path already consumed by mv is gone, so rm -f skips it.
+TMPFILES=
+
+track_tmp() {
+    TMPFILES="$TMPFILES $1"
+}
+
+cleanup_tmp() {
+    if [ -n "$TMPFILES" ]; then
+        # Unquoted on purpose - space-separated paths we created ourselves.
+        rm -f $TMPFILES
+        TMPFILES=
+    fi
+}
+
+trap cleanup_tmp EXIT
+trap 'cleanup_tmp; exit 1' HUP INT TERM
+
 # Sets the system hostname and keeps the 127.0.1.1 entry in /etc/hosts in sync
 # with it - an unresolvable hostname makes sudo (and anything else doing a
 # reverse lookup) stall until its DNS timeout expires.
 set_hostname() {
     new_hostname=$1
+    old_hostname=$(hostname)
 
-    if [ "$(hostname)" = "$new_hostname" ]; then
+    if [ "$old_hostname" = "$new_hostname" ]; then
         return 0
+    fi
+
+    # The caller only validates CMDB_ID; CMDB_HOSTNAME_PREFIX comes from the
+    # ESP too and lands in the same name, so the composed result is what
+    # actually has to be a legal hostname.
+    case $new_hostname in
+        *[!A-Za-z0-9-]* | -* | *-)
+            echo "cmdb-bootstrap: '$new_hostname' is not a valid hostname" >&2
+            return 1
+            ;;
+    esac
+
+    # HOST_NAME_MAX is 64 on Linux; longer and sethostname(2) fails with
+    # ENAMETOOLONG after /etc/hostname has already been written.
+    if [ ${#new_hostname} -gt 64 ]; then
+        echo "cmdb-bootstrap: '$new_hostname' is ${#new_hostname} characters, over the 64-character limit" >&2
+        return 1
     fi
 
     # hostnamectl needs dbus, which may not be up yet this early at boot -
@@ -42,11 +80,26 @@ set_hostname() {
     fi
 
     hosts_tmp=$(mktemp "${HOSTS_FILE}.XXXXXX") || return 1
+    track_tmp "$hosts_tmp"
     chmod 644 "$hosts_tmp"
-    awk -v h="$new_hostname" '
-        $1=="127.0.1.1" {print "127.0.1.1\t" h; seen=1; next}
+    # Rewrites the 127.0.1.1 mapping in place of the old name, keeping any
+    # other aliases that share the line - replacing the whole line would drop
+    # them. Further 127.0.1.1 lines (there shouldn't be any) get the old name
+    # stripped too, so nothing keeps resolving to it, and are dropped entirely
+    # if that leaves them with no names at all.
+    awk -v old="$old_hostname" -v new="$new_hostname" '
+        $1=="127.0.1.1" {
+            line = "127.0.1.1"
+            if (!seen) { line = line "\t" new; seen=1 }
+            for (i = 2; i <= NF; i++) {
+                if ($i != old && $i != new) line = line "\t" $i
+            }
+            if (line == "127.0.1.1") next
+            print line
+            next
+        }
         {print}
-        END {if (!seen) print "127.0.1.1\t" h}
+        END {if (!seen) print "127.0.1.1\t" new}
     ' "$HOSTS_FILE" 2>/dev/null > "$hosts_tmp" || { rm -f "$hosts_tmp"; return 1; }
     mv "$hosts_tmp" "$HOSTS_FILE" || { rm -f "$hosts_tmp"; return 1; }
 }
@@ -81,6 +134,7 @@ if [ -z "$SKIP_SYSTEMCTL" ]; then
 fi
 
 tmp=$(mktemp "${ENV_FILE}.XXXXXX")
+track_tmp "$tmp"
 chmod 644 "$tmp"
 
 # Drop any existing cmdb-bootstrap block (and self-heals a stray BEGIN with

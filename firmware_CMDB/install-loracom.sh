@@ -32,11 +32,31 @@ EOF
 
 # Always run make - it's incremental, and skipping it when a binary happens to
 # exist installs a stale one built from older sources.
-make -C "$SCRIPT_DIR/loracom"
+#
+# Built as the invoking user, not as root: obj/ and bin/ live in the working
+# tree, and root-owned objects there make every subsequent non-root `make` fail
+# on them ("cannot create obj/version.h.tmp: Permission denied").
+BUILD_USER=${SUDO_USER:-}
+if [ -z "$BUILD_USER" ] || [ "$BUILD_USER" = root ]; then
+    make -C "$SCRIPT_DIR/loracom"
+elif command -v runuser >/dev/null 2>&1; then
+    echo "install-loracom.sh: building as $BUILD_USER"
+    runuser -u "$BUILD_USER" -- make -C "$SCRIPT_DIR/loracom"
+else
+    echo "install-loracom.sh: building as $BUILD_USER"
+    su "$BUILD_USER" -s /bin/sh -c "make -C \"$SCRIPT_DIR/loracom\""
+fi
 
 mkdir -p "$INSTALL_DIR"
 install -m 755 "$SCRIPT_DIR/loracom/bin/loracom" "$INSTALL_DIR/loracom"
 install -m 755 "$SCRIPT_DIR/bootstrap/bootstrap.sh" "$INSTALL_DIR/bootstrap.sh"
+
+# /etc/profile.d only covers login shells. Systemd services, cron, and
+# `ssh board loracom --get` never read it, and neither does bootstrap.sh's
+# CMDB_POST_INIT_CMD - so loracom also goes somewhere that is on the default
+# PATH of all of them.
+mkdir -p /usr/local/bin
+ln -sfn "$INSTALL_DIR/loracom" /usr/local/bin/loracom
 
 cat > /etc/profile.d/cmdb.sh <<EOF
 export PATH="$INSTALL_DIR:\$PATH"
@@ -47,7 +67,7 @@ install -m 644 "$SCRIPT_DIR/bootstrap/cmdb-bootstrap.service" /etc/systemd/syste
 systemctl daemon-reload
 systemctl enable cmdb-bootstrap.service
 
-echo "install-loracom.sh: installed $INSTALL_DIR/{loracom,bootstrap.sh}, $INSTALL_DIR on PATH via /etc/profile.d/cmdb.sh, cmdb-bootstrap.service enabled (runs on next boot)."
+echo "install-loracom.sh: installed $INSTALL_DIR/{loracom,bootstrap.sh}, symlinked /usr/local/bin/loracom, $INSTALL_DIR on PATH via /etc/profile.d/cmdb.sh, cmdb-bootstrap.service enabled (runs on next boot)."
 
 # On a first install the overlay above hasn't taken effect yet, so the device
 # is legitimately missing - flag it rather than letting the service we just

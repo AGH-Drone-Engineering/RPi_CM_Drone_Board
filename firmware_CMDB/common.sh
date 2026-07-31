@@ -8,6 +8,31 @@
 : "${CONFIG_TXT:=}"
 : "${OVERLAY_DIR:=}"
 
+# Temp files awaiting the mv that puts them in place. Without this a script
+# dying mid-rewrite (read-only or full boot partition, a signal, set -e on any
+# of the commands in between) leaves a stray config.txt.XXXXXX behind - on the
+# boot partition, where it is both visible and useless.
+#
+# Nothing ever has to be untracked: once mv has consumed a temp file the path
+# is simply gone and the rm -f below is a no-op for it.
+CMDB_TMPFILES=
+
+cmdb_track_tmp() {
+    CMDB_TMPFILES="$CMDB_TMPFILES $1"
+}
+
+cmdb_cleanup_tmp() {
+    if [ -n "$CMDB_TMPFILES" ]; then
+        # Unquoted on purpose - the list is space-separated paths we created
+        # ourselves from CONFIG_TXT/ENV_FILE, none of which contain spaces.
+        rm -f $CMDB_TMPFILES
+        CMDB_TMPFILES=
+    fi
+}
+
+trap cmdb_cleanup_tmp EXIT
+trap 'cmdb_cleanup_tmp; exit 1' HUP INT TERM
+
 require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "$(basename "$0") must be run as root" >&2
@@ -56,25 +81,42 @@ configtxt_set_block() {
     block_end="# END $block_name"
 
     block_tmp=$(mktemp "${CONFIG_TXT}.XXXXXX")
+    cmdb_track_tmp "$block_tmp"
     chmod 644 "$block_tmp" 2>/dev/null || :  # boot partition is FAT, mode is cosmetic there
 
-    awk -v b="$block_begin" -v e="$block_end" -v n="$block_name" -v dis="$disable_re" '
+    # Each step removes the temp file itself rather than leaning on the EXIT
+    # trap: a caller that pipes the block body in (`printf ... | set_block`)
+    # runs this function in a subshell, and POSIX resets caught signals there,
+    # so the trap would never fire for it.
+    if ! awk -v b="$block_begin" -v e="$block_end" -v n="$block_name" -v dis="$disable_re" '
         $0==b {skip=1; next}
         $0==e {skip=0; next}
         skip {next}
         dis != "" && $0 ~ dis {print "#" $0 "  # disabled by " n; next}
         {print}
-    ' "$CONFIG_TXT" > "$block_tmp"
+    ' "$CONFIG_TXT" > "$block_tmp"; then
+        rm -f "$block_tmp"
+        echo "$(basename "$0"): failed to read $CONFIG_TXT" >&2
+        exit 1
+    fi
 
     # [all] resets any conditional filter section the file happened to end
     # inside, so these settings apply unconditionally.
-    {
+    if ! {
         echo "$block_begin"
         echo "[all]"
         printf '%s\n' "$block_body"
         echo "$block_end"
-    } >> "$block_tmp"
+    } >> "$block_tmp"; then
+        rm -f "$block_tmp"
+        echo "$(basename "$0"): failed to write $block_tmp (is the boot partition full?)" >&2
+        exit 1
+    fi
 
-    mv "$block_tmp" "$CONFIG_TXT"
+    if ! mv "$block_tmp" "$CONFIG_TXT"; then
+        rm -f "$block_tmp"
+        echo "$(basename "$0"): failed to replace $CONFIG_TXT" >&2
+        exit 1
+    fi
     sync
 }

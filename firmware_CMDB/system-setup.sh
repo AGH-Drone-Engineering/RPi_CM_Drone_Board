@@ -31,6 +31,7 @@ MARKER_END="# END cmdb-system-setup"
 echo "system-setup.sh: recording hardware identity in $ENV_FILE"
 
 env_tmp=$(mktemp "${ENV_FILE}.XXXXXX")
+cmdb_track_tmp "$env_tmp"
 chmod 644 "$env_tmp"
 
 awk -v b="$MARKER_BEGIN" -v e="$MARKER_END" '

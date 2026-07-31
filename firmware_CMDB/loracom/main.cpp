@@ -55,7 +55,9 @@ If the UART device doesn't exist, loracom exits with -ENODEV - UART3 most
 likely isn't enabled yet, see firmware_CMDB/system-setup.sh.
 
 Only one loracom transaction runs on the UART at a time. An instance that finds
-it busy waits TIM ms and retries, up to 2*RET times, then exits with -EBUSY.
+it busy waits TIM ms and retries, up to 3*(RET+1) times, then exits with -EBUSY
+- long enough to cover the worst case the instance holding the port is allowed
+to take before it gives up itself.
 
 Additional flags (do not touch under normal circumstances):
  -t=TIM,  --timeout=TIM A timeout (in ms) after which an UART transmission is 
@@ -148,10 +150,17 @@ int main(int argc, char *argv[])
             return -ENODEV;
         }
 
-        // maxRetries comes from --retries, so guard the doubling against
-        // wrapping round to a *smaller* number of attempts.
+        // How long to keep trying for the lock. The instance holding it may
+        // legitimately need (maxRetries + 1) attempts, each lasting up to
+        // 3*timeoutMs - timeoutMs for the reply, plus the 2*timeoutMs
+        // LoRaCom::awaitReply() spends waiting for a retransmission after a
+        // bad checksum. Waiting for any less than that hands out a spurious
+        // -EBUSY exactly when the link is noisy and the holder needs its full
+        // retry budget. maxRetries comes from --retries, so both steps are
+        // guarded against wrapping round to a *smaller* wait.
         constexpr uint32_t MAX_UINT32 = std::numeric_limits<uint32_t>::max();
-        const uint32_t lockRetries = maxRetries > MAX_UINT32 / 2 ? MAX_UINT32 : maxRetries * 2;
+        const uint32_t lockAttempts = maxRetries == MAX_UINT32 ? MAX_UINT32 : maxRetries + 1;
+        const uint32_t lockRetries = lockAttempts > MAX_UINT32 / 3 ? MAX_UINT32 : lockAttempts * 3;
 
         // Taken before the port is opened and held for the whole transaction:
         // LoRaCom's reply matching is positional, so a second instance reading

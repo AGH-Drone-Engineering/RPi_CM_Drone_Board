@@ -19,9 +19,10 @@ DEPS := $(OBJS:.o=.d)
 # "unknown" covers building outside a checkout (e.g. from a source tarball).
 VERSION_H := $(OBJ_DIR)/version.h
 GIT_HASH := $(shell git -C $(CURDIR) rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
-# Only source changes count as dirty. obj/ and bin/ are committed to this repo,
-# so `git describe --dirty` would flag every tree that has ever been built and
-# the marker would mean nothing.
+# Only loracom's own sources count as dirty - the marker answers "was this
+# binary built from exactly the committed sources", and edits elsewhere in the
+# repo (the install scripts, the HAT firmware) don't change what it was built
+# from. Pathspecs are relative to this directory, so they cover loracom/ only.
 GIT_DIRTY := $(shell git -C $(CURDIR) status --porcelain -- '*.cpp' '*.h' makefile 2>/dev/null | head -1)
 GIT_VERSION := $(GIT_HASH)$(if $(GIT_DIRTY),-dirty,)
 
