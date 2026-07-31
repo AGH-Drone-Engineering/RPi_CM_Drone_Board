@@ -8,7 +8,11 @@ CLI tool for talking to the ESP: send a message, read a queued message, or reque
 
 `--message` is limited to 248 bytes — the ESP's default 256-byte UART RX buffer minus the 8-byte frame overhead (header + checksum). A longer message is rejected with `-EMSGSIZE`, no bytes sent. Use `--force` to ignore that check.
 
-All errors are returned as negative `errno` codes (see `errno(3)`) — e.g. `-ENODATA` (queue empty), `-EMSGSIZE` (message too long), `-EREMOTEIO` (no response from the HAT after retries), `-EINVAL` (bad arguments).
+All errors are returned as negative `errno` codes (see `errno(3)`) — e.g. `-ENODATA` (queue empty), `-EMSGSIZE` (message too long), `-EREMOTEIO` (no response from the HAT after retries), `-EINVAL` (bad arguments), `-ENODEV` (the UART device doesn't exist — UART3 isn't enabled, see `system-setup.sh`), `-EBUSY` (another `loracom` instance is using the port). Run with no options at all and you get the help on stderr and `-EINVAL`.
+
+Only one `loracom` transaction runs on the UART at a time — instances take an `flock` on the device before opening it. An instance that finds the port busy waits for the timeout and retries, up to `2 * retries` times, then gives up with `-EBUSY`. Callers that poll in a loop should treat `-EBUSY` as "try again shortly", not as a link failure.
+
+`loracom --help` prints the commit the binary was built from, so you can tell what's actually deployed on a board (`-dirty` means it was built from an edited working tree).
 
 === Using loracom from Python
 
@@ -45,20 +49,45 @@ while True:
 * `systemctl set-environment` — picked up by systemd services started afterwards.
 * A self-owned block in `/etc/environment` — picked up by PAM sessions (e.g. SSH logins).
 
-The ESP's config always includes `CMDB_ID` (its own address). Two more variables are recognized if present among the propagated ones:
+Before calling `loracom` it checks that the UART3 device (`/dev/ttyAMA3`, override with `UART_DEVICE`) exists and logs a warning if it doesn't — without it `loracom` can only fail. Run `system-setup.sh` to enable UART3.
 
+The ESP's config always includes `CMDB_ID` (its own address). It's used to name the board — the hostname is set to `raspi-usa-<CMDB_ID>` (so `raspi-usa-1`, `raspi-usa-2`, …), with the `127.0.1.1` entry in `/etc/hosts` kept in sync. Three more variables are recognized if present among the propagated ones:
+
+* `CMDB_HOSTNAME_PREFIX` — replaces the `raspi-usa` hostname prefix.
 * `CMDB_GETCONF_TIMESTAMP` — a unix timestamp; if set, `bootstrap.sh` sets the system clock to it. *Not implemented on the ESP side yet* — the ESP doesn't send this variable today, so this is currently a no-op.
 * `CMDB_POST_INIT_CMD` — a command run after propagation, with all propagated variables already in its environment. Currently unused.
 
-Both of these are best-effort: a failure is logged and ignored, it doesn't fail the boot.
+The hostname, clock and post-init steps are all best-effort: a failure is logged and ignored, it doesn't fail the boot.
 
 == Installation
 
-From `firmware_CMDB`, as root:
+To provision a fresh CM5 image, run `system-setup.sh` from `firmware_CMDB`, as root:
 
 [source,sh]
 ----
-sudo ./install.sh
+sudo ./system-setup.sh
 ----
 
-This builds `loracom` (if it isn't built already), installs both tools to `/opt/cmdb/bin`, puts that directory on `PATH` (via `/etc/profile.d/cmdb.sh`), and installs + enables `cmdb-bootstrap.service` (runs on the next boot).
+It records what the board is and then runs the three `install-*.sh` scripts below. *A reboot is required* afterwards for the `config.txt` changes to take effect. Everything is idempotent — re-running only picks up package upgrades.
+
+The install scripts are also usable on their own, which is the normal way to redeploy after a change (`install-loracom.sh` after a rebuild, say) instead of re-running the whole provisioning. `common.sh` is a sourced helper, not something you run.
+
+=== system-setup.sh
+
+Writes `CMDB_HARDWARE_REVISION=1` and `CMDB_HARDWARE_TYPE=STANDARD` to `/etc/environment`, then runs `install-utils.sh`, `install-cam.sh` and `install-loracom.sh` in that order — utils first, because it brings in the toolchain `install-loracom.sh` compiles with.
+
+Those two variables are fixed per board variant, unlike `CMDB_ID`, which identifies the individual unit and comes from the HAT at boot. They live in their own marked block, separate from the one `bootstrap.sh` maintains in the same file — each script only ever rewrites its own.
+
+=== install-utils.sh
+
+Installs the apt packages we build and work with (`screen`, `build-essential`, `git`, `python3-pip`, …) plus the kernel headers — the package name has moved around across RPi OS releases, so it takes the first candidate the archive actually has. Then the pip packages (`opencv-python`, `ultralytics` — note `json` is in the Python standard library, there's nothing to install for it), *VNC* via `raspi-config nonint do_vnc 0`, and *Claude Code* for the invoking (`sudo`) user.
+
+=== install-cam.sh
+
+Adds the *IMX900* overlay on *CAM0*, and turns `camera_auto_detect` off — autodetect and an explicit sensor overlay fight over the same CSI port.
+
+=== install-loracom.sh
+
+Enables *UART3* on GPIO8/GPIO9 (`dtoverlay=uart3-pi5`, giving `/dev/ttyAMA3`) — the port `loracom` uses to talk to the ESP. Then builds `loracom`, installs it and `bootstrap.sh` to `/opt/cmdb/bin`, puts that directory on `PATH` (via `/etc/profile.d/cmdb.sh`), and installs + enables `cmdb-bootstrap.service` (runs on the next boot).
+
+`install-cam.sh` and `install-loracom.sh` both edit `config.txt`, each in its own marked block, so they don't interfere and can be run in any order or individually.

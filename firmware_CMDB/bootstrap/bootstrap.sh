@@ -7,7 +7,9 @@
 #   - CMDB_GETCONF_TIMESTAMP: sets the system clock to this unix timestamp.
 #   - CMDB_POST_INIT_CMD: runs this command, with the propagated variables
 #     already in its environment.
-# Both of those are best-effort: failures are logged and ignored, they don't
+#   - CMDB_ID: sets the hostname to <prefix>-<CMDB_ID> (prefix defaults to
+#     "raspi-usa", override with CMDB_HOSTNAME_PREFIX).
+# All of those are best-effort: failures are logged and ignored, they don't
 # affect this script's own exit status.
 set -eu
 
@@ -15,10 +17,46 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 : "${LORACOM_CMD:=$SCRIPT_DIR/loracom --config}"
 : "${ENV_FILE:=/etc/environment}"
+: "${HOSTS_FILE:=/etc/hosts}"
+: "${UART_DEVICE:=/dev/ttyAMA3}"
 : "${SKIP_SYSTEMCTL:=}"
 
 MARKER_BEGIN="# BEGIN cmdb-bootstrap"
 MARKER_END="# END cmdb-bootstrap"
+
+# Sets the system hostname and keeps the 127.0.1.1 entry in /etc/hosts in sync
+# with it - an unresolvable hostname makes sudo (and anything else doing a
+# reverse lookup) stall until its DNS timeout expires.
+set_hostname() {
+    new_hostname=$1
+
+    if [ "$(hostname)" = "$new_hostname" ]; then
+        return 0
+    fi
+
+    # hostnamectl needs dbus, which may not be up yet this early at boot -
+    # fall back to writing /etc/hostname and setting the live name directly.
+    if ! (command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$new_hostname" 2>/dev/null); then
+        printf '%s\n' "$new_hostname" > /etc/hostname || return 1
+        hostname "$new_hostname" || return 1
+    fi
+
+    hosts_tmp=$(mktemp "${HOSTS_FILE}.XXXXXX") || return 1
+    chmod 644 "$hosts_tmp"
+    awk -v h="$new_hostname" '
+        $1=="127.0.1.1" {print "127.0.1.1\t" h; seen=1; next}
+        {print}
+        END {if (!seen) print "127.0.1.1\t" h}
+    ' "$HOSTS_FILE" 2>/dev/null > "$hosts_tmp" || { rm -f "$hosts_tmp"; return 1; }
+    mv "$hosts_tmp" "$HOSTS_FILE" || { rm -f "$hosts_tmp"; return 1; }
+}
+
+# Checked before talking to the ESP: without UART3 the loracom call below can
+# only fail, and "device missing" is a much more actionable message than the
+# open() error it would produce.
+if [ ! -e "$UART_DEVICE" ]; then
+    echo "cmdb-bootstrap: WARNING: $UART_DEVICE does not exist - UART3 is probably not enabled; run system-setup.sh and reboot" >&2
+fi
 
 CONFIG=$($LORACOM_CMD) || {
     echo "cmdb-bootstrap: $LORACOM_CMD failed" >&2
@@ -72,6 +110,24 @@ fi
 
 if [ "$ok" = 1 ]; then
     echo "cmdb-bootstrap: propagated config variables"
+fi
+
+if [ -n "${CMDB_ID:-}" ]; then
+    case $CMDB_ID in
+        # Anything outside [A-Za-z0-9-] (or a leading/trailing '-') would make
+        # an invalid hostname - refuse rather than half-apply it.
+        *[!A-Za-z0-9-]* | -* | *-)
+            echo "cmdb-bootstrap: CMDB_ID='$CMDB_ID' can't be used in a hostname (ignored, not critical)" >&2
+            ;;
+        *)
+            hostname_new="${CMDB_HOSTNAME_PREFIX:-raspi-usa}-$CMDB_ID"
+            if set_hostname "$hostname_new"; then
+                echo "cmdb-bootstrap: hostname set to $hostname_new"
+            else
+                echo "cmdb-bootstrap: failed to set hostname to $hostname_new (ignored, not critical)" >&2
+            fi
+            ;;
+    esac
 fi
 
 if [ -n "${CMDB_GETCONF_TIMESTAMP:-}" ]; then

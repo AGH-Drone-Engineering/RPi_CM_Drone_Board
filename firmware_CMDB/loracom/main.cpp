@@ -1,15 +1,28 @@
+#include <sys/stat.h>
+
 #include <cerrno>
 #include <iostream>
+#include <limits>
 #include <system_error>
 #include <vector>
 #include <string>
 #include <string_view>
 
 #include "ArgParser.h"
+#include "DeviceLock.h"
 #include "LoRaCom.h"
 
+// Generated into the object dir by the makefile (see VERSION_H there). Guarded
+// so an ad-hoc `g++ *.cpp` outside the makefile still compiles.
+#if __has_include("version.h")
+#include "version.h"
+#endif
+#ifndef LORACOM_VERSION
+#define LORACOM_VERSION "unknown"
+#endif
+
 constexpr std::string_view HELP_MSG = 
-R"(Usage: loracom [options])
+R"(Usage: loracom [options]
 Send and receive messages over LoRa communication on HAT.
 Basic options:
   -h,     --help        Show this help message and exit
@@ -36,7 +49,13 @@ Basic options:
                         errno code on failure.
 
 All error codes are returned as negative errno values (e.g. -ENODATA, -EMSGSIZE,
--EREMOTEIO, -EINVAL) - see errno(3).
+-EREMOTEIO, -EINVAL, -ENODEV, -EBUSY) - see errno(3).
+
+If the UART device doesn't exist, loracom exits with -ENODEV - UART3 most
+likely isn't enabled yet, see firmware_CMDB/system-setup.sh.
+
+Only one loracom transaction runs on the UART at a time. An instance that finds
+it busy waits TIM ms and retries, up to 2*RET times, then exits with -EBUSY.
 
 Additional flags (do not touch under normal circumstances):
  -t=TIM,  --timeout=TIM A timeout (in ms) after which an UART transmission is 
@@ -66,13 +85,35 @@ int send(LoRaCom& loraCom, uint8_t destId, const std::string_view& message, bool
 int get(LoRaCom& loraCom, bool force);
 int requestConfig(LoRaCom& loraCom);
 
+namespace {
+
+// The build is identified by the commit it came from rather than a version
+// number - there are no releases, and "which commit is on this drone" is the
+// question that actually gets asked.
+void printHelp(std::ostream& out)
+{
+    out << "loracom (commit " << LORACOM_VERSION << ")\n" << HELP_MSG << std::endl;
+}
+
+// The UART node only exists once UART3 is enabled in config.txt, so a missing
+// device means the board isn't set up - a distinct situation from the link
+// being broken, and worth its own exit code rather than the ENOENT that
+// open() would otherwise surface.
+bool uartExists(const std::string& device)
+{
+    struct stat st{};
+    return ::stat(device.c_str(), &st) == 0 && S_ISCHR(st.st_mode);
+}
+
+} // namespace
+
 int main(int argc, char *argv[])
 {
     try {
         ArgParser parser(argc, argv);
 
         if (parser.hasOption("--help", "-h")) {
-            std::cout << HELP_MSG << std::endl;
+            printHelp(std::cout);
             return 0;
         }
 
@@ -83,25 +124,49 @@ int main(int argc, char *argv[])
         auto destId = parser.getArgValueInt<uint8_t>("--send", "-s");
         auto messageOpt = parser.getArgValueStr("--message", "-m");
 
-        if (destId || messageOpt) {
-            if (!destId || !messageOpt) {
-                std::cerr << "Error: --send and --message options must be used together and have valid values." << std::endl;
-                return -EINVAL;
-            }
+        const bool wantsSend = destId.has_value() || messageOpt.has_value();
+        const bool wantsGet = parser.hasOption("--get", "-g");
+        const bool wantsConfig = parser.hasOption("--config", "-c");
 
-            LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE, timeoutMs, maxRetries);
+        if (!wantsSend && !wantsGet && !wantsConfig) {
+            // Nothing was asked for. Unlike an explicit -h/--help, that's a
+            // usage error, so the help goes to stderr and the exit code says so.
+            printHelp(std::cerr);
+            return -EINVAL;
+        }
+
+        if (wantsSend && (!destId || !messageOpt)) {
+            std::cerr << "Error: --send and --message options must be used together and have valid values." << std::endl;
+            return -EINVAL;
+        }
+
+        const std::string device(DEFAULT_DEVICE);
+
+        if (!uartExists(device)) {
+            std::cerr << "Error: " << device << " does not exist - UART3 is probably not enabled;"
+                         " run system-setup.sh and reboot." << std::endl;
+            return -ENODEV;
+        }
+
+        // maxRetries comes from --retries, so guard the doubling against
+        // wrapping round to a *smaller* number of attempts.
+        constexpr uint32_t MAX_UINT32 = std::numeric_limits<uint32_t>::max();
+        const uint32_t lockRetries = maxRetries > MAX_UINT32 / 2 ? MAX_UINT32 : maxRetries * 2;
+
+        // Taken before the port is opened and held for the whole transaction:
+        // LoRaCom's reply matching is positional, so a second instance reading
+        // the same UART would happily consume this one's reply.
+        DeviceLock lock(device, timeoutMs, lockRetries);
+
+        LoRaCom loraCom(device, DEFAULT_BAUDRATE, timeoutMs, maxRetries);
+
+        if (wantsSend) {
             return send(loraCom, *destId, *messageOpt, force);
         }
-        else if (parser.hasOption("--get", "-g")) {
-            LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE, timeoutMs, maxRetries);
+        if (wantsGet) {
             return get(loraCom, force);
         }
-        else if (parser.hasOption("--config", "-c")) {
-            LoRaCom loraCom(std::string(DEFAULT_DEVICE), DEFAULT_BAUDRATE, timeoutMs, maxRetries);
-            return requestConfig(loraCom);
-        }
-
-        return 0;
+        return requestConfig(loraCom);
     } catch (const ArgParser::ParserException& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return -EINVAL;
