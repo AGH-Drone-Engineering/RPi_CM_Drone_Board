@@ -44,80 +44,61 @@ while True:
 
 == bootstrap
 
-`cmdb-bootstrap.service` runs `bootstrap/bootstrap.sh` early at boot. It calls `loracom --config` and publishes every returned `KEY=VALUE` pair as an environment variable, two ways:
+`cmdb-bootstrap.service` runs `bootstrap/bootstrap.sh` early at boot: it calls `loracom --config` and publishes every returned `KEY=VALUE` pair twice — through `systemctl set-environment` (for systemd units started afterwards) and into its own block in `/etc/environment` (for PAM sessions, e.g. SSH). Every step is best-effort: failures are logged, the boot continues.
 
-* `systemctl set-environment` — picked up by systemd services started afterwards.
-* A self-owned block in `/etc/environment` — picked up by PAM sessions (e.g. SSH logins).
+From the ESP, always sent:
 
-Before calling `loracom` it checks that the UART3 device (`/dev/ttyAMA3`, override with `UART_DEVICE`) exists and logs a warning if it doesn't — without it `loracom` can only fail. Run `system-setup.sh` to enable UART3.
+* `CMDB_ID` — the board's own LoRa address. Sets the hostname to `raspi-usa-<CMDB_ID>`.
+* `CMDB_ESP_FIRMWARE_BUILD` — commit the HAT firmware was built from. Propagated only, nothing acts on it.
 
-The ESP's config always includes `CMDB_ESP_FIRMWARE_BUILD` — the commit the HAT firmware was built from. Nothing here acts on it; it's propagated like any other pair so `systemctl show-environment` and `/etc/environment` record which firmware the board came up against.
+From the ESP, acted on if present:
 
-The config also always includes `CMDB_ID` (its own address). It's used to name the board — the hostname is set to `raspi-usa-<CMDB_ID>` (so `raspi-usa-1`, `raspi-usa-2`, …), with the `127.0.1.1` entry in `/etc/hosts` kept in sync (any other aliases sharing that line are preserved). A `CMDB_ID` or prefix that wouldn't make a legal hostname, or a composed name over the 64-character limit, is refused and logged rather than half-applied. Three more variables are recognized if present among the propagated ones:
+* `CMDB_HOSTNAME_PREFIX` — replaces the `raspi-usa` prefix.
+* `CMDB_GETCONF_TIMESTAMP` — unix timestamp to set the system clock to. *NOT IMPLEMENTED ON ESP SIDE.*
+* `CMDB_POST_INIT_CMD` — command run after propagation, with all the variables in its environment. Currently unused.
 
-* `CMDB_HOSTNAME_PREFIX` — replaces the `raspi-usa` hostname prefix.
-* `CMDB_GETCONF_TIMESTAMP` — a unix timestamp; if set, `bootstrap.sh` sets the system clock to it. *Not implemented on the ESP side yet* — the ESP doesn't send this variable today, so this is currently a no-op.
-* `CMDB_POST_INIT_CMD` — a command run after propagation, with all propagated variables already in its environment. Currently unused.
+Set locally by `install-cmdb-base.sh`, in a separate block of the same file:
 
-The hostname, clock and post-init steps are all best-effort: a failure is logged and ignored, it doesn't fail the boot.
+* `CMDB_HARDWARE_REVISION=1`
+* `CMDB_HARDWARE_TYPE=STANDARD`
 
-=== Hostname fallbacks
+=== Hostname
 
-A board that can't be named after its `CMDB_ID` still has to be reachable by name, so there are two fallbacks below the `raspi-usa-<CMDB_ID>` name, both built from the MAC address of the first non-loopback interface (hyphenated, since colons aren't legal in a hostname):
+Tried in order, each falling through to the next. `<mac>` is the first non-loopback interface, hyphenated:
 
-* `raspi-usa-fallback-<mac>` — set by `bootstrap.sh` whenever it comes up but can't get a usable `CMDB_ID`: the `loracom --config` call failed, returned nothing, didn't include `CMDB_ID`, or included one that wouldn't make a legal hostname.
-* `CMDB-<mac>` — set by `install-cmdb-base.sh` at provisioning time, for the case where `cmdb-bootstrap.service` never runs at all (not installed, disabled, or failing before it gets that far) and neither of the names above is ever applied. Re-running it on a board where the service *is* up leaves the hostname alone. A `CMDB-*` name on a running board therefore means it never got its identity from the HAT.
+* `raspi-usa-<CMDB_ID>` — normal case.
+* `raspi-usa-fallback-<mac>` — `bootstrap.sh` ran but got no usable `CMDB_ID`.
+* `CMDB-<mac>` — written by `install-cmdb-base.sh` at provisioning time. Seeing it on a running board means it never reached the HAT.
 
-Every hostname change also restarts `avahi-daemon` (best-effort, `try-restart`), because it caches the hostname at startup and would otherwise keep announcing the old name over mDNS until the next reboot — so `<hostname>.local` tracks the current name. `install-utils.sh` installs `avahi-daemon` for this; it's usually already there on Raspberry Pi OS.
+`127.0.1.1` in `/etc/hosts` is kept in sync and `avahi-daemon` restarted, so `<hostname>.local` follows the current name.
 
 == Installation
 
-To provision a fresh CM5 image, run `system-setup.sh` from `firmware_CMDB`, as root:
-
-[source,sh]
-----
-sudo ./system-setup.sh
-----
-
-It runs the four `install-*.sh` scripts below, in order. *A reboot is required* afterwards for the `config.txt` changes to take effect. Everything is idempotent — re-running only picks up package upgrades.
-
-Each script prints, on start, a short list of what it changes in the system. They are also usable on their own, which is the normal way to redeploy after a change (`install-loracom.sh` after a rebuild, say) instead of re-running the whole provisioning. `common.sh` is a sourced helper, not something you run.
-
-=== system-setup.sh
-
-Runs `install-cmdb-base.sh`, `install-utils.sh`, `install-cam.sh` and `install-loracom.sh` in that order and does nothing else itself. Base first, because it names the board, so a failure further down still leaves something reachable; utils second, because it brings in both the toolchain `install-loracom.sh` compiles with and the MAVProxy the base service runs.
+`sudo ./system-setup.sh` on a fresh CM5 image. It runs the four scripts below in order and does nothing else itself. *Reboot afterwards* for the `config.txt` changes. Everything is idempotent, each script prints what it changes on start, and each is usable on its own — the normal way to redeploy after a change. `common.sh` is a sourced helper, not something you run.
 
 === install-cmdb-base.sh
 
-What makes a board a CMDB, independent of the camera and the HAT tools.
-
-Writes `CMDB_HARDWARE_REVISION=1` and `CMDB_HARDWARE_TYPE=STANDARD` to `/etc/environment`. Both are fixed per board variant, unlike `CMDB_ID`, which identifies the individual unit and comes from the HAT at boot. They live in their own marked block, separate from the one `bootstrap.sh` maintains in the same file — each script only ever rewrites its own.
-
-Sets the baseline `CMDB-<mac>` hostname (see <<Hostname fallbacks>>).
-
-Enables *uart0* on GPIO14/GPIO15 (`dtoverlay=uart0-pi5`, giving `/dev/ttyAMA0`) — `J_FC_UART` on the IARC HAT, i.e. the flight controller, not the UART3 the HAT's own ESP hangs off. If a serial console happens to be enabled on that device it is disabled, since a getty there would eat the MAVLink stream.
-
-Then installs and enables `cmdb-mavlink.service`, which runs MAVProxy as a bridge:
+* `/etc/environment`: `CMDB_HARDWARE_REVISION=1`, `CMDB_HARDWARE_TYPE=STANDARD`
+* hostname: `CMDB-<mac>`, see <<Hostname>>
+* `config.txt`: `dtoverlay=uart0-pi5` — GPIO14/GPIO15, giving `/dev/ttyAMA0`. That's `J_FC_UART` on the IARC HAT, i.e. the flight controller; a serial console on that device is disabled if one is enabled.
+* `cmdb-mavlink.service`: MAVProxy, enabled at boot
 
 [source,sh]
 ----
 mavproxy.py --master=/dev/ttyAMA0,57600 --out=udpin:0.0.0.0:14550 --daemon --state-basedir=/var/log/mavproxy
 ----
 
-`udpin` means MAVProxy *listens* on 14550 rather than pushing to a fixed address, so any number of ground stations can attach without the board knowing their addresses — connect a GCS to `udp://<board>:14550`. `--state-basedir` keeps the tlogs out of the service's working directory (`/`). The device, baud and port are variables at the top of the script; the unit file is generated from them rather than shipped separately, so there is one place to change them.
-
-MAVProxy itself comes from pip, in `install-utils.sh` — running this script standalone on a board that never had `install-utils.sh` will enable a service whose binary is missing, and it says so.
+Device, baud and port are variables at the top of the script and the unit is generated from them. `udpin` listens rather than pushing to a fixed address, so point a GCS at `udp://<board>:14550`. MAVProxy itself comes from `install-utils.sh`.
 
 === install-utils.sh
 
-Installs the apt packages we build and work with (`screen`, `build-essential`, `git`, `python3-pip`, …) plus the kernel headers — the package name has moved around across RPi OS releases, so it takes the first candidate the archive actually has. Then the pip packages (`opencv-python`, `ultralytics`, and `MAVProxy` for the bridge `install-cmdb-base.sh` sets up — note `json` is in the Python standard library, there's nothing to install for it), *VNC* via `raspi-config nonint do_vnc 0`, *RDP*, and *Claude Code* for the invoking (`sudo`) user.
+* apt: `screen`, `build-essential`, `g++`, `make`, `git`, `curl`, `cmake`, `pkg-config`, `python3-pip`, `python3-venv`, `python3-dev`, `i2c-tools`, `minicom`, `avahi-daemon`, `xrdp`, plus kernel headers — the package name has moved across RPi OS releases, so it takes the first candidate the archive has
+* pip, system-wide: `opencv-python`, `ultralytics`, `MAVProxy`
+* VNC: `raspi-config nonint do_vnc 0`
+* RDP: `xrdp` on 3389, serving its own Xorg session so it coexists with VNC
+* Claude Code, for the `sudo` user
 
-RDP is `xrdp` on the default port 3389. It serves its own Xorg session instead of sharing the local one, so it coexists with VNC and works regardless of what the console desktop runs. Two things are done for the `sudo` user beyond installing the package, both of which are otherwise silent failures at first login:
-
-* `~/.xsession` is written (`startlxde-pi`, or the first of `startlxde`/`x-session-manager` that exists) — Bookworm ships Wayland-only session files, and without this the login succeeds into a black screen. An existing `~/.xsession` is left alone.
-* The `xrdp` service account is added to the `ssl-cert` group, without which it can't read the snakeoil key and every login drops straight back to the greeter.
-
-RDP has no key authentication, so the account needs a real password; if it doesn't have one (an image where the imager only planted an SSH key), the script says so rather than setting one.
+RDP also gets that user a `~/.xsession` (`startlxde-pi`) if there isn't one — Bookworm's session files are Wayland-only and xrdp would land on a black screen — and puts `xrdp` in the `ssl-cert` group. There's no key auth, so the account needs a password; the script warns rather than setting one.
 
 === install-cam.sh
 
@@ -176,10 +157,11 @@ Only the tracked sources are kept — no `.git`, and build output is gitignored.
 
 === install-loracom.sh
 
-Enables *UART3* on GPIO8/GPIO9 (`dtoverlay=uart3-pi5`, giving `/dev/ttyAMA3`) — the port `loracom` uses to talk to the ESP. Then builds `loracom`, installs it and `bootstrap.sh` to `/opt/cmdb/bin`, and installs + enables `cmdb-bootstrap.service` (runs on the next boot).
+* `config.txt`: `dtoverlay=uart3-pi5` — GPIO8/GPIO9, giving `/dev/ttyAMA3`, the port `loracom` uses to talk to the ESP
+* `/opt/cmdb/bin`: `loracom`, `bootstrap.sh`
+* `/usr/local/bin/loracom`: symlink, plus `/opt/cmdb/bin` on `PATH` via `/etc/profile.d/cmdb.sh`. The symlink is what makes `loracom` work from anything that never reads `/etc/profile` — systemd units, cron, `ssh board loracom --get`, `CMDB_POST_INIT_CMD`
+* `cmdb-bootstrap.service`: installed and enabled, runs on the next boot
 
-`loracom` is reachable two ways: `/etc/profile.d/cmdb.sh` puts `/opt/cmdb/bin` on `PATH`, and `/usr/local/bin/loracom` is a symlink to it. The symlink is what makes `loracom` work from anything that never reads `/etc/profile` — systemd services, cron, `ssh board loracom --get`, and `CMDB_POST_INIT_CMD`.
-
-The build runs as the `sudo` user rather than as root, so `loracom/obj` and `loracom/bin` stay writable for ordinary `make` afterwards.
+Builds as the `sudo` user, so `loracom/obj` and `loracom/bin` stay writable for ordinary `make` afterwards.
 
 `install-cmdb-base.sh`, `install-cam.sh` and `install-loracom.sh` all edit `config.txt`, each in its own marked block, so they don't interfere and can be run in any order or individually.
