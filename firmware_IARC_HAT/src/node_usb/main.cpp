@@ -1,13 +1,13 @@
 #include <RFNode.h>
 #include "UartRfBridge.h"
 
-// Ground-station variant of src/node. The host protocol runs over USB-CDC to a
-// phone instead of over the RPi UART, and the address is compiled in because a
-// ground-station board has no populated address jumpers.
+// Ground-station variant of src/node: the host protocol runs over USB-CDC to a
+// phone instead of over the RPi UART.
 
-// Kept clear of the drone range (1..4). RFNodeConfig requires [0x01, 0xFE].
+// Fallback used only when JP1..JP5 read 0 (unpopulated). 5 is the ground-station
+// address the Pi tooling defaults to; drones take 1..4.
 #ifndef NODE_ADDR
-#define NODE_ADDR 20
+#define NODE_ADDR 5
 #endif
 
 static void logToUsbCdc(const char *str)
@@ -68,6 +68,25 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define RPI_UART_RX 18
 #define RPI_UART_BAUD 115200
 
+// Same jumper wiring as src/node: ADDR1/2/4/8/16 on these pins, LSB first.
+static const uint8_t ADDR_PINS[] = {10, 11, 12, 13, 14};
+static constexpr size_t ADDR_BITS = sizeof(ADDR_PINS) / sizeof(ADDR_PINS[0]);
+
+static uint8_t readAddrJumpers()
+{
+    for (uint8_t pin : ADDR_PINS)
+        pinMode(pin, INPUT_PULLDOWN);
+    delay(1); // let the pulldown settle before sampling
+
+    uint8_t addr = 0;
+    for (size_t bit = 0; bit < ADDR_BITS; ++bit)
+    {
+        if (digitalRead(ADDR_PINS[bit]) == HIGH)
+            addr |= static_cast<uint8_t>(1u << bit);
+    }
+    return addr;
+}
+
 static SPIClass loraSPI;
 static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU868_CH0,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
@@ -78,7 +97,6 @@ static RFNodeConfig nodeCfg = []()
     c.mode = PacketMode::P2P;
     c.security = RFSecurityConfig::FromPassword("bajer");
     c.dutyCycle.enabled = false;
-    c.addr = NODE_ADDR;
     return c;
 }();
 
@@ -102,10 +120,18 @@ void setup()
     Serial0.begin(RPI_UART_BAUD, SERIAL_8N1, RPI_UART_RX, RPI_UART_TX);
     delay(2000);
 
+    // Unlike src/node this does not halt on unset jumpers - a ground-station
+    // board is often unpopulated, so it falls back to the compiled-in address.
+    uint8_t myAddr = readAddrJumpers();
+    const bool fromJumpers = myAddr != 0;
+    if (!fromJumpers)
+        myAddr = NODE_ADDR;
+    nodeCfg.addr = myAddr;
+
     loraSPI.begin(LORA_CLK, LORA_MISO, LORA_MOSI, LORA_CS);
 
     static RFNode nodeObj(radio, nodeCfg);
-    static UartRfBridge bridgeObj(nodeObj, Serial, NODE_ADDR);
+    static UartRfBridge bridgeObj(nodeObj, Serial, myAddr);
     node = &nodeObj;
     bridge = &bridgeObj;
 
@@ -124,7 +150,8 @@ void setup()
     }
     node->startWorkerTask();
 
-    LOG_I("main", "ready addr=0x%02X (compiled in)", (unsigned)NODE_ADDR);
+    LOG_I("main", "ready addr=0x%02X (%s)", myAddr,
+          fromJumpers ? "from jumpers" : "compiled-in fallback");
     LOG_I("main", "usb_bridge active, logs move to UART TX=%d", RPI_UART_TX);
     Logger::setWriteFn(&logToDebugUart);
 }
