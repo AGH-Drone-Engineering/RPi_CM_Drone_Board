@@ -10,7 +10,11 @@ require_root
 
 # g++/make come from build-essential; they're listed explicitly because
 # install-loracom.sh compiles loracom and would fail without them.
-APT_PACKAGES="screen build-essential g++ make git curl cmake pkg-config python3-pip python3-venv python3-dev i2c-tools minicom"
+# avahi-daemon: bootstrap.sh restarts it after every hostname change so the
+# board's *.local mDNS name tracks CMDB_ID (or the MAC-based fallback)
+# instead of going stale - usually preinstalled on Raspberry Pi OS, but not
+# guaranteed on every image.
+APT_PACKAGES="screen build-essential g++ make git curl cmake pkg-config python3-pip python3-venv python3-dev i2c-tools minicom avahi-daemon"
 PIP_PACKAGES="opencv-python ultralytics"
 
 echo "install-utils.sh: installing apt packages"
