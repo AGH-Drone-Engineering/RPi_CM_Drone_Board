@@ -17,7 +17,7 @@ enum class FrameType : uint8_t
 class UartRfBridge
 {
 public:
-    UartRfBridge(RFNode &node, HardwareSerial &uart, uint8_t myAddr);
+    UartRfBridge(RFNode &node, Stream &host, uint8_t myAddr);
 
     void poll();
 
@@ -52,7 +52,7 @@ private:
     static constexpr size_t MAX_QUEUED_TX = 4;
 
     RFNode &_node;
-    HardwareSerial &_uart;
+    Stream &_uart;
     uint8_t _myAddr;
 
     QueueHandle_t _rxQueue;

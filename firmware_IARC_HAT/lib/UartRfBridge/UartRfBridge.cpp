@@ -3,8 +3,8 @@
 
 static constexpr char LOG_MODULE[] = "bridge";
 
-UartRfBridge::UartRfBridge(RFNode &node, HardwareSerial &uart, uint8_t myAddr)
-    : _node(node), _uart(uart), _myAddr(myAddr)
+UartRfBridge::UartRfBridge(RFNode &node, Stream &host, uint8_t myAddr)
+    : _node(node), _uart(host), _myAddr(myAddr)
 {
     _rxQueue = xQueueCreate(MAX_QUEUED_MESSAGES, sizeof(QueuedMessage *));
     _txQueue = xQueueCreate(MAX_QUEUED_TX, sizeof(PendingTx *));
