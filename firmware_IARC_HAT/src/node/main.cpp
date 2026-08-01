@@ -153,7 +153,7 @@ void setup()
     }
     node->startWorkerTask();
 
-    LOG_I("main", "ready addr=0x%02X (from jumpers)", myAddr);
+    LOG_I("main", "ready addr=0x%02X (from jumpers) build=%s", myAddr, CMDB_ESP_FIRMWARE_BUILD);
 }
 
 void loop()

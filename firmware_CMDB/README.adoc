@@ -51,7 +51,9 @@ while True:
 
 Before calling `loracom` it checks that the UART3 device (`/dev/ttyAMA3`, override with `UART_DEVICE`) exists and logs a warning if it doesn't — without it `loracom` can only fail. Run `system-setup.sh` to enable UART3.
 
-The ESP's config always includes `CMDB_ID` (its own address). It's used to name the board — the hostname is set to `raspi-usa-<CMDB_ID>` (so `raspi-usa-1`, `raspi-usa-2`, …), with the `127.0.1.1` entry in `/etc/hosts` kept in sync (any other aliases sharing that line are preserved). A `CMDB_ID` or prefix that wouldn't make a legal hostname, or a composed name over the 64-character limit, is refused and logged rather than half-applied. Three more variables are recognized if present among the propagated ones:
+The ESP's config always includes `CMDB_ESP_FIRMWARE_BUILD` — the commit the HAT firmware was built from. Nothing here acts on it; it's propagated like any other pair so `systemctl show-environment` and `/etc/environment` record which firmware the board came up against.
+
+The config also always includes `CMDB_ID` (its own address). It's used to name the board — the hostname is set to `raspi-usa-<CMDB_ID>` (so `raspi-usa-1`, `raspi-usa-2`, …), with the `127.0.1.1` entry in `/etc/hosts` kept in sync (any other aliases sharing that line are preserved). A `CMDB_ID` or prefix that wouldn't make a legal hostname, or a composed name over the 64-character limit, is refused and logged rather than half-applied. Three more variables are recognized if present among the propagated ones:
 
 * `CMDB_HOSTNAME_PREFIX` — replaces the `raspi-usa` hostname prefix.
 * `CMDB_GETCONF_TIMESTAMP` — a unix timestamp; if set, `bootstrap.sh` sets the system clock to it. *Not implemented on the ESP side yet* — the ESP doesn't send this variable today, so this is currently a no-op.

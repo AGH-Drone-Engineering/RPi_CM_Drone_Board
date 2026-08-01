@@ -5,6 +5,20 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+// The commit this firmware was built from, generated into $BUILD_DIR by
+// scripts/git_version.py (wired in as a pre-build extra_script, which also puts
+// $BUILD_DIR on the include path). Lives here rather than in the .cpp because
+// main.cpp logs it at boot too. Guarded so this still compiles if the generator
+// didn't run - a hand-rolled build, a stripped source export - in which case
+// the stamp reads "unknown", the same fallback firmware_CMDB/loracom/main.cpp
+// uses.
+#if __has_include("version.h")
+#include "version.h"
+#endif
+#ifndef CMDB_ESP_FIRMWARE_BUILD
+#define CMDB_ESP_FIRMWARE_BUILD "unknown"
+#endif
+
 // Wire type bytes
 enum class FrameType : uint8_t
 {

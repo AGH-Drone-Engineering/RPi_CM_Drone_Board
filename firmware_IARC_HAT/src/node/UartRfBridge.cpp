@@ -269,9 +269,30 @@ void UartRfBridge::pumpTx()
 
 void UartRfBridge::handleGetconf()
 {
-    char buf[32];
-    int n = snprintf(buf, sizeof(buf), "CMDB_ID=%u", static_cast<unsigned>(_myAddr));
-    sendFrame(FrameType::GETCONF, 0, reinterpret_cast<const uint8_t *>(buf), static_cast<uint32_t>(n));
+    // Sized for the longest payload this can produce:
+    //   "CMDB_ID=" 8 + "255" 3 + separator 1
+    //   + "CMDB_ESP_FIRMWARE_BUILD=" 24 + "<8-char hash>-dirty" 14 + NUL 1 = 51.
+    // No value may contain whitespace: the host splits the payload on it and
+    // word-splits the result into environment variables (see
+    // firmware_CMDB/bootstrap/bootstrap.sh).
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "CMDB_ID=%u CMDB_ESP_FIRMWARE_BUILD=%s",
+                     static_cast<unsigned>(_myAddr), CMDB_ESP_FIRMWARE_BUILD);
+
+    // snprintf returns the length it *would* have written, not what it did:
+    // negative on an output error, >= sizeof(buf) once it truncates. Either
+    // passed straight to sendFrame would read past the end of buf. What's
+    // actually in buf is a NUL-terminated string of at most sizeof(buf) - 1
+    // characters, so clamp to that. Neither case is reachable with the format
+    // above; they're guarded so a later addition can't turn into an overread.
+    if (n < 0)
+        return; // nothing sane to report - the host retries on its timeout
+    size_t len = static_cast<size_t>(n);
+    if (len >= sizeof(buf))
+        len = sizeof(buf) - 1;
+
+    sendFrame(FrameType::GETCONF, 0, reinterpret_cast<const uint8_t *>(buf),
+              static_cast<uint32_t>(len));
 }
 
 void UartRfBridge::handleAck()
