@@ -7,6 +7,7 @@
 
 : "${CONFIG_TXT:=}"
 : "${OVERLAY_DIR:=}"
+: "${HOSTS_FILE:=/etc/hosts}"
 
 # Temp files awaiting the mv that puts them in place. Without this a script
 # dying mid-rewrite (read-only or full boot partition, a signal, set -e on any
@@ -37,6 +38,94 @@ require_root() {
     if [ "$(id -u)" -ne 0 ]; then
         echo "$(basename "$0") must be run as root" >&2
         exit 1
+    fi
+}
+
+# The two helpers below are deliberate copies of the ones in
+# bootstrap/bootstrap.sh - that script is installed on its own into
+# /opt/cmdb/bin and runs before anything else at boot, so it can't source this
+# file. Fix a bug in one, fix it in the other.
+
+# First MAC address found among the non-loopback interfaces. Colons aren't a
+# legal hostname character, so it comes back hyphenated.
+cmdb_get_mac() {
+    for addr_file in /sys/class/net/*/address; do
+        iface=${addr_file%/address}
+        iface=${iface##*/}
+        [ "$iface" = "lo" ] && continue
+        mac=$(cat "$addr_file" 2>/dev/null) || continue
+        if [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ]; then
+            printf '%s\n' "$mac" | tr ':' '-'
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Sets the system hostname and keeps the 127.0.1.1 entry in $HOSTS_FILE in sync
+# with it - an unresolvable hostname makes sudo (and anything else doing a
+# reverse lookup) stall until its DNS timeout expires. Best-effort by contract:
+# returns non-zero on failure, callers decide whether that's fatal.
+cmdb_set_hostname() {
+    new_hostname=$1
+    old_hostname=$(hostname)
+
+    if [ "$old_hostname" = "$new_hostname" ]; then
+        return 0
+    fi
+
+    case $new_hostname in
+        *[!A-Za-z0-9-]* | -* | *-)
+            echo "$(basename "$0"): '$new_hostname' is not a valid hostname" >&2
+            return 1
+            ;;
+    esac
+
+    # HOST_NAME_MAX is 64 on Linux; longer and sethostname(2) fails with
+    # ENAMETOOLONG after /etc/hostname has already been written.
+    if [ ${#new_hostname} -gt 64 ]; then
+        echo "$(basename "$0"): '$new_hostname' is ${#new_hostname} characters, over the 64-character limit" >&2
+        return 1
+    fi
+
+    if ! (command -v hostnamectl >/dev/null 2>&1 && hostnamectl set-hostname "$new_hostname" 2>/dev/null); then
+        printf '%s\n' "$new_hostname" > /etc/hostname || return 1
+        hostname "$new_hostname" || return 1
+    fi
+
+    hosts_tmp=$(mktemp "${HOSTS_FILE}.XXXXXX") || return 1
+    cmdb_track_tmp "$hosts_tmp"
+    chmod 644 "$hosts_tmp"
+    # Rewrites the 127.0.1.1 mapping in place of the old name, keeping any
+    # other aliases that share the line - replacing the whole line would drop
+    # them. Further 127.0.1.1 lines (there shouldn't be any) get the old name
+    # stripped too, so nothing keeps resolving to it, and are dropped entirely
+    # if that leaves them with no names at all.
+    awk -v old="$old_hostname" -v new="$new_hostname" '
+        $1=="127.0.1.1" {
+            line = "127.0.1.1"
+            if (!seen) { line = line "\t" new; seen=1 }
+            for (i = 2; i <= NF; i++) {
+                if ($i != old && $i != new) line = line "\t" $i
+            }
+            if (line == "127.0.1.1") next
+            print line
+            next
+        }
+        {print}
+        END {if (!seen) print "127.0.1.1\t" new}
+    ' "$HOSTS_FILE" 2>/dev/null > "$hosts_tmp" || { rm -f "$hosts_tmp"; return 1; }
+    mv "$hosts_tmp" "$HOSTS_FILE" || { rm -f "$hosts_tmp"; return 1; }
+
+    # Best-effort: avahi-daemon caches the hostname at startup and doesn't pick
+    # up changes on its own, so mDNS (*.local) would keep announcing the old
+    # name until the next reboot without this. try-restart (not restart) so we
+    # don't start it on boards where it's disabled - and it's a no-op when it
+    # isn't installed yet, which is the case on a first run of system-setup.sh
+    # (install-utils.sh installs it afterwards, and it then starts up already
+    # seeing the name set here).
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl try-restart avahi-daemon >/dev/null 2>&1 || :
     fi
 }
 

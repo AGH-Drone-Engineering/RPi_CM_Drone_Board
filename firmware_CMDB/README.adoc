@@ -61,6 +61,15 @@ The config also always includes `CMDB_ID` (its own address). It's used to name t
 
 The hostname, clock and post-init steps are all best-effort: a failure is logged and ignored, it doesn't fail the boot.
 
+=== Hostname fallbacks
+
+A board that can't be named after its `CMDB_ID` still has to be reachable by name, so there are two fallbacks below the `raspi-usa-<CMDB_ID>` name, both built from the MAC address of the first non-loopback interface (hyphenated, since colons aren't legal in a hostname):
+
+* `raspi-usa-fallback-<mac>` — set by `bootstrap.sh` whenever it comes up but can't get a usable `CMDB_ID`: the `loracom --config` call failed, returned nothing, didn't include `CMDB_ID`, or included one that wouldn't make a legal hostname.
+* `CMDB-<mac>` — set by `system-setup.sh` at provisioning time, for the case where `cmdb-bootstrap.service` never runs at all (not installed, disabled, or failing before it gets that far) and neither of the names above is ever applied. Re-running `system-setup.sh` on a board where the service *is* up leaves the hostname alone. A `CMDB-*` name on a running board therefore means it never got its identity from the HAT.
+
+Every hostname change also restarts `avahi-daemon` (best-effort, `try-restart`), because it caches the hostname at startup and would otherwise keep announcing the old name over mDNS until the next reboot — so `<hostname>.local` tracks the current name. `install-utils.sh` installs `avahi-daemon` for this; it's usually already there on Raspberry Pi OS.
+
 == Installation
 
 To provision a fresh CM5 image, run `system-setup.sh` from `firmware_CMDB`, as root:
@@ -76,7 +85,7 @@ The install scripts are also usable on their own, which is the normal way to red
 
 === system-setup.sh
 
-Writes `CMDB_HARDWARE_REVISION=1` and `CMDB_HARDWARE_TYPE=STANDARD` to `/etc/environment`, then runs `install-utils.sh`, `install-cam.sh` and `install-loracom.sh` in that order — utils first, because it brings in the toolchain `install-loracom.sh` compiles with.
+Writes `CMDB_HARDWARE_REVISION=1` and `CMDB_HARDWARE_TYPE=STANDARD` to `/etc/environment` and sets the baseline `CMDB-<mac>` hostname (see <<Hostname fallbacks>>), then runs `install-utils.sh`, `install-cam.sh` and `install-loracom.sh` in that order — utils first, because it brings in the toolchain `install-loracom.sh` compiles with.
 
 Those two variables are fixed per board variant, unlike `CMDB_ID`, which identifies the individual unit and comes from the HAT at boot. They live in their own marked block, separate from the one `bootstrap.sh` maintains in the same file — each script only ever rewrites its own.
 
