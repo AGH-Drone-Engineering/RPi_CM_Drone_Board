@@ -9,6 +9,12 @@
 #     already in its environment.
 #   - CMDB_ID: sets the hostname to <prefix>-<CMDB_ID> (prefix defaults to
 #     "raspi-usa", override with CMDB_HOSTNAME_PREFIX).
+# If the ESP can't be reached at all, or it doesn't hand back a usable
+# CMDB_ID, the hostname instead falls back to <prefix>-fallback-<mac>, using
+# the MAC address of the first non-loopback interface, so the board is still
+# reachable by name. Every hostname change is followed by a best-effort
+# avahi-daemon restart so the new name is what shows up over mDNS
+# (*.local) too, not just /etc/hostname.
 # All of those are best-effort: failures are logged and ignored, they don't
 # affect this script's own exit status.
 set -eu
@@ -102,6 +108,47 @@ set_hostname() {
         END {if (!seen) print "127.0.1.1\t" new}
     ' "$HOSTS_FILE" 2>/dev/null > "$hosts_tmp" || { rm -f "$hosts_tmp"; return 1; }
     mv "$hosts_tmp" "$HOSTS_FILE" || { rm -f "$hosts_tmp"; return 1; }
+
+    # Best-effort: avahi-daemon caches the hostname at startup and doesn't
+    # pick up changes on its own, so mDNS (*.local) would keep announcing
+    # the old name until the next reboot without this. try-restart (not
+    # restart) so we don't start it on boards where it's disabled/absent.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl try-restart avahi-daemon >/dev/null 2>&1 || :
+    fi
+}
+
+# First MAC address found among the non-loopback interfaces, used to build a
+# fallback hostname when the ESP can't give us a CMDB_ID. Colons aren't a
+# legal hostname character, so it comes back hyphenated.
+get_mac() {
+    for addr_file in /sys/class/net/*/address; do
+        iface=${addr_file%/address}
+        iface=${iface##*/}
+        [ "$iface" = "lo" ] && continue
+        mac=$(cat "$addr_file" 2>/dev/null) || continue
+        if [ -n "$mac" ] && [ "$mac" != "00:00:00:00:00:00" ]; then
+            printf '%s\n' "$mac" | tr ':' '-'
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Called whenever we don't have a usable CMDB_ID from the ESP - keeps the
+# board reachable by a stable, unique name instead of whatever hostname the
+# image shipped with.
+set_fallback_hostname() {
+    mac=$(get_mac) || {
+        echo "cmdb-bootstrap: no MAC address found, can't set fallback hostname" >&2
+        return 1
+    }
+    fallback_hostname="${CMDB_HOSTNAME_PREFIX:-raspi-usa}-fallback-$mac"
+    if set_hostname "$fallback_hostname"; then
+        echo "cmdb-bootstrap: hostname set to $fallback_hostname (fallback, no CMDB_ID from HAT)"
+    else
+        echo "cmdb-bootstrap: failed to set fallback hostname to $fallback_hostname" >&2
+    fi
 }
 
 # Checked before talking to the ESP: without UART3 the loracom call below can
@@ -113,11 +160,13 @@ fi
 
 CONFIG=$($LORACOM_CMD) || {
     echo "cmdb-bootstrap: $LORACOM_CMD failed" >&2
+    set_fallback_hostname
     exit 1
 }
 
 if [ -z "$CONFIG" ]; then
     echo "cmdb-bootstrap: $LORACOM_CMD returned nothing to propagate" >&2
+    set_fallback_hostname
     exit 1
 fi
 
@@ -172,6 +221,7 @@ if [ -n "${CMDB_ID:-}" ]; then
         # an invalid hostname - refuse rather than half-apply it.
         *[!A-Za-z0-9-]* | -* | *-)
             echo "cmdb-bootstrap: CMDB_ID='$CMDB_ID' can't be used in a hostname (ignored, not critical)" >&2
+            set_fallback_hostname
             ;;
         *)
             hostname_new="${CMDB_HOSTNAME_PREFIX:-raspi-usa}-$CMDB_ID"
@@ -179,9 +229,13 @@ if [ -n "${CMDB_ID:-}" ]; then
                 echo "cmdb-bootstrap: hostname set to $hostname_new"
             else
                 echo "cmdb-bootstrap: failed to set hostname to $hostname_new (ignored, not critical)" >&2
+                set_fallback_hostname
             fi
             ;;
     esac
+else
+    echo "cmdb-bootstrap: no CMDB_ID propagated by the HAT" >&2
+    set_fallback_hostname
 fi
 
 if [ -n "${CMDB_GETCONF_TIMESTAMP:-}" ]; then
