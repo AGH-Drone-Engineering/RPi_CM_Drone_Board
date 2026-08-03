@@ -153,7 +153,9 @@ Without the patch *full resolution does not start at all* — `Format mismatch`,
 
 The patch drops the `SGBRG` entries, which makes `SRGGB10_1X10` the lowest code and settles libcamera on RGGB, and removes the `- 3` truncation so all five modes are exposed at each bit depth (upstream left binning crop reachable through neither code). Full detail, plus the caveats it introduces — notably that `--hflip`/`--vflip` stop working — in `framos-rpi-drivers/PATCHES.md`.
 
-Only the tracked sources are kept — no `.git`, and build output is gitignored. To refresh it from upstream, re-clone, re-apply the `fr_imx900.c` change and copy the tracked files back over.
+A second patch to the same file makes `V4L2_CID_VBLANK` writable. Upstream pins it to `min == max`, and VBLANK is the only lever libcamera has on frame duration — so the sensor free-ran at 136.62 fps with exposure stuck at 6.9 ms, ignoring `--shutter` and `--framerate` alike. Anywhere but bright daylight the AGC then ran out of exposure, pinned analogue gain at its 7.94x ceiling and buried the image in noise. VBLANK now spans up to the frame length implied by each mode's own `min_fps`, and its handler writes `VMAX` rather than only recomputing the exposure range. At 1032x776 12-bit the exposure ceiling goes from 840 to 120,954 lines — 6.9 ms to ~1 s.
+
+Only the tracked sources are kept — no `.git`, and build output is gitignored. To refresh it from upstream, re-clone, re-apply both `fr_imx900.c` changes and copy the tracked files back over.
 
 === install-loracom.sh
 
