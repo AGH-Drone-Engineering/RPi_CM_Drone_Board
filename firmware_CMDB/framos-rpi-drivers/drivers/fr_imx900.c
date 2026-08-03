@@ -855,6 +855,20 @@ static void imx900_adjust_exposure_range(struct imx900 *imx900)
 				exposure_max);
 }
 
+/*
+ * Longest frame the sensor is allowed to run, in lines. Derived from the
+ * mode's own min_fps - the slowest rate the vendor's frame_rate control
+ * already accepts - so VBLANK can never be driven anywhere frame_rate could
+ * not have gone.
+ */
+static u32 imx900_max_frame_length(struct imx900 *imx900)
+{
+	const struct imx900_mode *mode = imx900->mode;
+
+	return (IMX900_M_FACTOR * IMX900_G_FACTOR) /
+					((u64)mode->min_fps * imx900->line_time);
+}
+
 static int imx900_set_frame_rate(struct imx900 *imx900, u64 val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&imx900->sd);
@@ -883,8 +897,15 @@ static void imx900_update_frame_rate(struct imx900 *imx900, u64 val)
 
 	update_vblank = imx900->frame_length - mode->height;
 
-	__v4l2_ctrl_modify_range(imx900->vblank, update_vblank,
-				 update_vblank, 1, update_vblank);
+	/*
+	 * Keep the range open rather than pinning it to the rate just
+	 * requested: libcamera lengthens exposure only through VBLANK, and a
+	 * degenerate range leaves it stuck at this mode's shortest frame.
+	 */
+	__v4l2_ctrl_modify_range(imx900->vblank,
+				 imx900->min_frame_length_delta,
+				 imx900_max_frame_length(imx900) - mode->height,
+				 1, update_vblank);
 
 	__v4l2_ctrl_s_ctrl(imx900->vblank, update_vblank);
 
@@ -1557,6 +1578,13 @@ static int imx900_set_ctrl(struct v4l2_ctrl *ctrl)
 		imx900_update_frame_rate(imx900, ctrl->val);
 		break;
 	case V4L2_CID_VBLANK:
+		/*
+		 * VBLANK is now writable, so it - not just frame_rate - decides
+		 * how long the frame is. Keep frame_length in step; every other
+		 * user of it (exposure range, SHS, the stop-streaming delay)
+		 * reads it back.
+		 */
+		imx900->frame_length = ctrl->val + imx900->mode->height;
 		imx900_adjust_exposure_range(imx900);
 		break;
 	case V4L2_CID_CONVERSION_GAIN:
@@ -1573,6 +1601,10 @@ static int imx900_set_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_ANALOGUE_GAIN:
 		ret = imx900_write_hold_reg(imx900, GAIN_LOW, 2, ctrl->val);
+		break;
+	case V4L2_CID_VBLANK:
+		ret = imx900_write_hold_reg(imx900, VMAX_LOW, 3,
+					    imx900->frame_length);
 		break;
 	case V4L2_CID_EXPOSURE:
 		ret = imx900_set_exposure(imx900, ctrl->val);
@@ -1755,6 +1787,18 @@ static void imx900_set_limits(struct imx900 *imx900)
 
 	imx900->frame_length = mode->height + imx900->min_frame_length_delta;
 	dev_dbg(dev, "%s: frame length: %d\n", __func__, imx900->frame_length);
+
+	/*
+	 * imx900_adjust_min_frame_length_delta() above pinned VBLANK to this
+	 * mode's minimum; open it up now that line_time is known. Done here
+	 * rather than left to the __v4l2_ctrl_s_ctrl(framerate) at the end of
+	 * this function: re-selecting the same mode leaves that control's value
+	 * unchanged, and the framework then skips its s_ctrl entirely.
+	 */
+	__v4l2_ctrl_modify_range(imx900->vblank,
+				 imx900->min_frame_length_delta,
+				 imx900_max_frame_length(imx900) - mode->height,
+				 1, imx900->min_frame_length_delta);
 
 	max_framerate = (IMX900_G_FACTOR * IMX900_M_FACTOR) /
 				(imx900->frame_length * imx900->line_time);
