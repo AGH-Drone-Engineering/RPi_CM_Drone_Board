@@ -1,4 +1,5 @@
 #include <RFNode.h>
+#include <cstring>
 #include "UartRfBridge.h"
 
 // Logger write function for USB-CDC (Serial) output.
@@ -52,6 +53,8 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define RPI_UART_RX 44
 #define RPI_UART_BAUD 115200
 
+#define KILL_PAYLOAD "KILL"
+
 // Node address is set by the five solder jumpers JP1..JP5 (schematic labels
 // ADDR1/2/4/8/16, pcb_IARC_HAT/comm.kicad_sch), least significant bit first.
 // Each jumper ties its GPIO either to the ADDR_HIGH rail (+3.3V through 1K) or
@@ -97,6 +100,17 @@ static uint8_t readAddrJumpers()
     return addr;
 }
 
+static void killMyself()
+{
+    digitalWrite(KILLSWITCH_FC_CTL, LOW);
+    digitalWrite(KILLSWITCH_PSU_CTL, LOW);
+    LOG_W("main", "KILL received — killswitch engaged (FC/PSU low), halting");
+    while (1) {
+        delay(1000);
+        LOG_W("main", "KILL received — killswitch engaged (FC/PSU low), halting");
+    }
+}
+
 void setup()
 {
     Serial.begin(115200); // USB-CDC: boot/debug diagnostics only
@@ -132,7 +146,16 @@ void setup()
     bridge = &bridgeObj;
 
     // Wire RFNode events to the bridge (handler bodies live in UartRfBridge).
-    node->onReceive(UartRfBridge::onReceiveTrampoline, bridge);
+    node->onReceive(
+        // A KILL payload trips the killswitch; everything else goes to the bridge.
+        [](const RxInfo &info, const uint8_t *data, size_t len, void *ctx)
+        {
+            if (len == 4 && memcmp(data, KILL_PAYLOAD, 4) == 0) {
+                killMyself();
+            }
+            UartRfBridge::onReceiveTrampoline(info, data, len, ctx);
+        },
+        bridge);
     node->onSendOk(UartRfBridge::onSendOkTrampoline, bridge);
     node->onSendFail(UartRfBridge::onSendFailTrampoline, bridge);
 

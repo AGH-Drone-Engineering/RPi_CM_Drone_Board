@@ -26,28 +26,45 @@ static const char *beginStatusToStr(BeginStatus bs)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Killswitch transmitter pinout (ESP32-S3-WROOM-1, U1).
-// From IARC_Drone_KillSwitch_Transmitter/KillSwitch_pcb. Values are GPIOs.
-// ---------------------------------------------------------------------------
+static const char *txFailReasonToStr(TxFailReason r)
+{
+    switch (r)
+    {
+    case TxFailReason::RADIO_ERROR:
+        return "radio_error";
+    case TxFailReason::CHANNEL_BUSY:
+        return "channel_busy";
+    case TxFailReason::DUTY_CYCLE:
+        return "duty_cycle";
+    case TxFailReason::PENDING_LIST_FULL:
+        return "pending_list_full";
+    case TxFailReason::FRAME_BUILD_FAILED:
+        return "frame_build_failed";
+    case TxFailReason::ACK_TIMEOUT:
+        return "ack_timeout";
+    default:
+        return "unknown";
+    }
+}
 
 // LoRa module (SX1262).
-#define LORA_CS 38   // LORA_SPI_CS
-#define LORA_IRQ 4   // LORA_DIO1
-#define LORA_RST 39  // LORA_RESET
-#define LORA_BUSY 5  // LORA_BUSY
+#define LORA_CS    38
+#define LORA_IRQ    4
+#define LORA_RST   39
+#define LORA_BUSY   5
 
-#define LORA_RF_SW 2 // LORA_RF_SW
-#define LORA_CLK 40  // LORA_SPI_CLK
-#define LORA_MOSI 41 // LORA_SPI_MOSI
-#define LORA_MISO 42 // LORA_SPI_MISO
+#define LORA_RF_SW  2 
+#define LORA_CLK   40 
+#define LORA_MOSI  41
+#define LORA_MISO  42
 
 // I2C to the MCP23017 (U2). R2/R3 (2K2) pull both lines up on the board.
 #define I2C_SCL 15
 #define I2C_SDA 16
 
-// Front panel. SW4 shorts to GND when armed; both LEDs are active high.
-#define SW_ARM 6
+// Front panel. SW_ARM has an internal pullup; the logic treats HIGH as armed.
+// Both LEDs are active high.
+#define SW_ARM  6
 #define LED_ACT 7
 #define LED_ARM 48
 
@@ -65,14 +82,9 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define ESP_TXD0 43
 #define ESP_RXD0 44
 
-// ---------------------------------------------------------------------------
-// MCP23017 (U2) at 0x20 (A0..A2 grounded).
-//   GPB0..3 = SW_KILL1..4   inputs, active low, internal pullups
-//   GPB4..7 = LED_KILLED1..4
-//   GPA0..3 = LED_FAULT1..4
-//   GPA4..7 = LED_RX1..4
-// INTA/INTB are unconnected, so the switches are polled.
-// ---------------------------------------------------------------------------
+// MCP23017 (U2) at 0x20 (A0..A2 grounded). Switches are polled (INTA/INTB nc).
+//   GPB0..3 = SW_KILL1..4 (inputs, pullups, treated as active HIGH)
+//   GPB4..7 = LED_KILLED1..4  GPA0..3 = LED_FAULT1..4  GPA4..7 = LED_RX1..4
 #define MCP_ADDR 0x20
 #define MCP_IODIRA 0x00
 #define MCP_IODIRB 0x01
@@ -82,10 +94,15 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define MCP_OLATB 0x15
 
 #define MASK_KILLED(i) static_cast<uint8_t>(1u << (4 + (i)))
-#define MASK_FAULT(i) static_cast<uint8_t>(1u << (i))
-#define MASK_RX(i) static_cast<uint8_t>(1u << (4 + (i)))
 
 static constexpr uint8_t DRONE_COUNT = 4;
+
+// Panel wires both LED nibbles in reverse, so drone i drives slot (3 - i).
+// Edit an entry if a single drone lights the wrong position.
+static const uint8_t FAULT_SLOT[DRONE_COUNT] = {3, 2, 1, 0};
+static const uint8_t RX_SLOT[DRONE_COUNT] = {3, 2, 1, 0};
+#define MASK_FAULT(i) static_cast<uint8_t>(1u << FAULT_SLOT[i])
+#define MASK_RX(i) static_cast<uint8_t>(1u << (4 + RX_SLOT[i]))
 
 // Destination address per kill switch, SW_KILL1..4 in order.
 static const uint8_t DRONE_ADDR[DRONE_COUNT] = {0x01, 0x02, 0x03, 0x04};
@@ -97,6 +114,8 @@ static const char *KILL_PAYLOAD = "KILL";
 
 static constexpr uint32_t DEBOUNCE_MS = 25;
 static constexpr uint32_t POLL_MS = 10;
+// Minimum spacing between KILL retransmissions to the same drone.
+static constexpr uint32_t RESEND_GAP_MS = 75;
 
 static SPIClass loraSPI;
 static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU868_CH0,
@@ -121,14 +140,14 @@ enum class KillState : uint8_t
 };
 
 static KillState killState[DRONE_COUNT] = {};
+static uint32_t lastSendMs[DRONE_COUNT] = {};
 
 // Set from the RFNode worker task, consumed in loop(). The loop owns every I2C
 // access so the callbacks never touch the bus.
 static volatile bool ackFlag[DRONE_COUNT] = {};
 static volatile bool failFlag[DRONE_COUNT] = {};
 
-// Shadow of the two output latches. Bits are only ever set by the events below,
-// so everything starts dark.
+// Shadow of the two MCP output latches.
 static uint8_t latchA = 0;
 static uint8_t latchB = 0;
 
@@ -186,24 +205,39 @@ static void onSendOk(const SentInfo &info, void *)
 {
     int i = droneIndexFor(info.to);
     if (i >= 0)
+    {
+        LOG_I("kill", "KILL acked by drone=%d addr=0x%02X seq=%lu — reached target",
+              i + 1, info.to, (unsigned long)info.seq);
         ackFlag[i] = true;
+    }
 }
 
-static void onSendFail(const SentInfo &info, TxFailReason, void *)
+static void onSendFail(const SentInfo &info, TxFailReason reason, void *)
 {
     int i = droneIndexFor(info.to);
     if (i >= 0)
+    {
+        LOG_W("kill", "KILL NOT delivered to drone=%d addr=0x%02X seq=%lu reason=%s",
+              i + 1, info.to, (unsigned long)info.seq, txFailReasonToStr(reason));
         failFlag[i] = true;
+    }
 }
 
 static void sendKill(int i)
 {
-    if (node->sendAck(DRONE_ADDR[i], KILL_PAYLOAD) == SendStatus::OK)
+    LOG_I("kill", "sending KILL to drone=%d addr=0x%02X", i + 1, DRONE_ADDR[i]);
+
+    lastSendMs[i] = millis();
+    SendStatus st = node->sendAck(DRONE_ADDR[i], KILL_PAYLOAD);
+    if (st == SendStatus::OK)
     {
+        LOG_D("kill", "KILL queued for drone=%d, awaiting ack", i + 1);
         killState[i] = KillState::INFLIGHT;
     }
     else
     {
+        LOG_E("kill", "KILL enqueue FAILED for drone=%d status=%d — raising FAULT",
+              i + 1, (int)st);
         latchA |= MASK_FAULT(i);
         killState[i] = KillState::IDLE;
     }
@@ -218,7 +252,7 @@ static void halt(const char *reason)
 
 void setup()
 {
-    Serial.begin(115200); // USB-CDC: boot/debug diagnostics only
+    Serial.begin(115200);
 
     pinMode(SW_ARM, INPUT_PULLUP);
     pinMode(LED_ARM, OUTPUT);
@@ -259,13 +293,20 @@ void loop()
     static uint8_t swRaw = 0;
     static uint32_t swSince = 0;
 
-    const bool armed = digitalRead(SW_ARM) == LOW;
+    const bool armed = digitalRead(SW_ARM) == HIGH;
     digitalWrite(LED_ARM, armed ? HIGH : LOW);
+
+    static int lastArmed = -1;
+    if (static_cast<int>(armed) != lastArmed)
+    {
+        lastArmed = armed;
+        LOG_I("kill", "ARM %s", armed ? "engaged" : "released");
+    }
 
     uint8_t gpb = 0;
     if (mcpRead(MCP_GPIOB, gpb))
     {
-        uint8_t raw = static_cast<uint8_t>(~gpb) & 0x0F;
+        uint8_t raw = gpb & 0x0F;
         if (raw != swRaw)
         {
             swRaw = raw;
@@ -285,7 +326,9 @@ void loop()
         if (ackFlag[i])
         {
             ackFlag[i] = false;
+            LOG_I("kill", "drone=%d confirmed KILLED (ack) — clearing FAULT, lighting RX", i + 1);
             latchA |= MASK_RX(i);
+            latchA &= static_cast<uint8_t>(~MASK_FAULT(i));
             killState[i] = KillState::DONE;
         }
 
@@ -293,27 +336,32 @@ void loop()
         {
             failFlag[i] = false;
             latchA |= MASK_FAULT(i);
+            // If still held, the gated resend below re-fires after RESEND_GAP_MS.
+            killState[i] = KillState::IDLE;
             if (held)
-                sendKill(i);
+                LOG_W("kill", "drone=%d KILL failed while switch still held — will retry in >=%lums",
+                      i + 1, (unsigned long)RESEND_GAP_MS);
             else
-                killState[i] = KillState::IDLE;
+                LOG_W("kill", "drone=%d KILL failed and switch released — giving up", i + 1);
         }
 
-        // The switches only do anything while armed.
         if (!armed)
             continue;
 
         if (!held)
         {
-            // Back to safe — clear this channel and let it fire again.
+            if (killState[i] != KillState::IDLE)
+                LOG_I("kill", "drone=%d switch released — channel reset to safe", i + 1);
             killState[i] = KillState::IDLE;
             ackFlag[i] = false;
             failFlag[i] = false;
             latchA &= static_cast<uint8_t>(~(MASK_FAULT(i) | MASK_RX(i)));
             latchB &= static_cast<uint8_t>(~MASK_KILLED(i));
         }
-        else if (killState[i] == KillState::IDLE)
+        else if (killState[i] == KillState::IDLE &&
+                 millis() - lastSendMs[i] >= RESEND_GAP_MS)
         {
+            LOG_I("kill", "drone=%d switch engaged — firing KILL", i + 1);
             latchB |= MASK_KILLED(i);
             sendKill(i);
         }
