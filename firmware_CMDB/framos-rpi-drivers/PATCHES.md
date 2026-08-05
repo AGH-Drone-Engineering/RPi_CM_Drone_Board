@@ -81,9 +81,33 @@ full-res failure: a no-op flip that flipped the label back to RGGB.) Removing
 `MODIFY_LAYOUT` from the `vflip` control, or unregistering both flips, would
 close this off - deliberately not done here, to keep the patch minimal.
 
-**Two mode phases are inferred, not measured.** The Bayer phase was verified for
-2064x1552 and 1032x776. `2064x154` and `1024x720` are now exposed as RGGB on the
-same reasoning but were never checked against a test pattern.
+**The subsampled modes are not RGGB, and this patch mislabels them.** The claim
+that used to stand here - that the phase had been verified for both 2064x1552 and
+1032x776, leaving only `2064x154` and `1024x720` inferred - does not survive
+measurement. Reading the raw Bayer planes off a DNG of a flat neutral target,
+black level 3840 subtracted:
+
+| mode | R/G | B/G | G2/G |
+| --- | --- | --- | --- |
+| 2064x1552 | 0.538 | 0.405 | 0.997 |
+| 1032x776 | 2.164 | 2.153 | 1.382 |
+
+A correct phase puts equal signal in both green planes, which is what full
+resolution shows (G2/G 0.997). At 1032x776 they are 38% apart while R and B land
+within 0.5% of each other - green is sitting in the R and B slots. The two green
+slots hold 582 and 804, reproducing the full-res R:B ratio (804/582 = 1.38
+against 1834/1378 = 1.33), which is where R and B went. So the vendor's original
+`SGBRG*` labelling was right for the subsampled modes: forcing RGGB across the
+whole table fixed the two full-resolution modes and broke the colour of every
+subsampled one. Colour gains that neutralise 2064x1552 (G/R 1.02, G/B 1.02)
+leave 1032x776 at G/R 0.34, G/B 0.28.
+
+Nothing here works around that yet - IARC2026_raspi_control_flow just defaults
+its capture path to the full sensor. Fixing it properly means advertising the
+real order per mode again without reintroducing the mode-selection failure the
+first half of this patch exists to solve, since libcamera still insists on one
+native order for the whole sensor. `2064x154` and `1024x720` remain unmeasured;
+given the above, treat them as suspect rather than as RGGB.
 
 ## drivers/fr_imx900.c - make VBLANK writable so exposure can be raised
 
