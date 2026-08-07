@@ -1,27 +1,38 @@
 #!/bin/sh
-# Regenerates the prebuilt camera payload in this directory.
+# Regenerates the prebuilt camera payload in this directory, which install-cam.sh
+# then uses to install the same stack on identical boards without compiling.
 #
-# Run on a board where the FRAMOS stack has already been built and installed
-# from source (i.e. after `CMDB_REBUILD_LIBCAMERA=1 ./install-cam.sh` took the
-# build path), then commit whatever changes here. install-cam.sh consumes the
-# result to install the same stack on identical boards without compiling.
+# Run on a board where the FRAMOS stack has already been built and installed from
+# source (i.e. after `CMDB_REBUILD_LIBCAMERA=1 ./install-cam.sh` took the build
+# path), then commit whatever changes here.
 #
-# The kernel modules and overlays are rebuilt from ../framos-rpi-drivers rather
-# than copied out of /lib/modules, so the payload provably matches the sources
-# carried in this repo. The /usr/local half can only be harvested from a live
-# install - it is a ten-minute meson build we are deliberately not repeating.
+# Modules and overlays are rebuilt from ../framos-rpi-drivers rather than copied
+# out of /lib/modules, so the payload provably matches the sources in this repo.
+# The /usr/local half can only be harvested from a live install - it is a
+# ten-minute meson build we are deliberately not repeating.
+#
+# Its file list comes from meson's install logs, the runtime package list from
+# the DT_NEEDED entries of what those logs name. Both are derived rather than
+# hand-kept: the package names are release-specific (libavcodec61,
+# libqt5core5t64), so a hand-kept list would name the previous release's
+# packages the first time this runs on a new one - and install-cam.sh's manifest
+# check would wave that through, everything else in it having been updated
+# correctly.
 set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DRIVERS_DIR=$SCRIPT_DIR/../framos-rpi-drivers
 FRAMOS_BUILD_DIR=${FRAMOS_BUILD_DIR:-/opt/framos}
 
-# meson records every file it installed. Harvesting that list is the only
-# reliable way to know which parts of /usr/local belong to this stack - it is
-# spread over bin, lib, libexec, include and share, mixed in with everything
-# else the board has under /usr/local.
 LIBCAMERA_LOG=$FRAMOS_BUILD_DIR/framos-libcamera/build/meson-logs/install-log.txt
 RPICAM_LOG=$FRAMOS_BUILD_DIR/rpicam-apps/build/meson-logs/install-log.txt
+
+cat <<EOF
+make-prebuilt.sh changes the following (nothing outside this repo):
+  * $SCRIPT_DIR/modules, overlays: rebuilt from ../framos-rpi-drivers
+  * $SCRIPT_DIR/usrlocal.tar.gz: harvested from the live /usr/local
+  * $SCRIPT_DIR/manifest: the pins install-cam.sh checks against
+EOF
 
 for log in "$LIBCAMERA_LOG" "$RPICAM_LOG"; do
     if [ ! -f "$log" ]; then
@@ -34,7 +45,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 # ---------------------------------------------------------------------------
-# kernel modules + overlays, rebuilt from the vendored sources
+# 1. kernel modules + overlays, rebuilt from the vendored sources
 # ---------------------------------------------------------------------------
 
 KVER=$(uname -r)
@@ -45,8 +56,7 @@ make -C "$DRIVERS_DIR" modules dtbs >/dev/null
 rm -rf "$SCRIPT_DIR/modules" "$SCRIPT_DIR/overlays"
 mkdir -p "$SCRIPT_DIR/modules" "$SCRIPT_DIR/overlays"
 
-# xz, matching what `make modules_install` produces on this kernel - depmod and
-# the module loader read .ko.xz natively, and it saves about 75% of the size.
+# Matches what `make modules_install` produces; depmod reads .ko.xz natively.
 for ko in "$DRIVERS_DIR"/drivers/fr_*.ko; do
     xz -9 -c "$ko" > "$SCRIPT_DIR/modules/$(basename "$ko").xz"
 done
@@ -56,23 +66,19 @@ make -C "$DRIVERS_DIR" clean >/dev/null 2>&1 || :
 rm -rf "$DRIVERS_DIR/overlays/preprocessed"
 
 # ---------------------------------------------------------------------------
-# /usr/local payload, harvested from the live install
+# 2. /usr/local payload, harvested from the live install
 # ---------------------------------------------------------------------------
 
 echo "make-prebuilt.sh: collecting /usr/local payload"
 
-# Directory entries in the log are dropped (tar recreates them), as is
-# __pycache__, which Python regenerates and which would otherwise go stale
-# against a different interpreter version.
 {
     grep -hv '^#' "$LIBCAMERA_LOG" "$RPICAM_LOG"
 
-    # libcamera signs its IPA modules in a post-install step that meson does
-    # not log, so the .sign files have to be picked up separately. They must
-    # ship, and must ship unmodified alongside the .so and the libcamera.so
-    # holding the matching public key: a signature libcamera cannot verify
-    # sends the IPA into an isolated process instead of loading it in-process.
-    # (For the same reason nothing here is ever stripped.)
+    # Signed by a post-install step meson does not log. They must ship
+    # unmodified next to the .so and the libcamera.so holding the matching
+    # public key: a signature libcamera cannot verify sends the IPA into an
+    # isolated process instead of loading it in-process. Never strip anything
+    # here for the same reason.
     find /usr/local/lib -name '*.so.sign' 2>/dev/null
 } | sed 's#^/usr/local/##' | grep -v '^/' | grep -v '__pycache__' | sort -u > "$work/all.txt"
 
@@ -89,28 +95,17 @@ if [ "$count" -lt 100 ]; then
     exit 1
 fi
 
-# gzip rather than zstd/xz: this is unpacked by install-cam.sh on a possibly
-# minimal image, and tar+gzip is the one combination always present.
-# Explicit root ownership: tar would record whatever the files happen to be
-# owned by, and this archive is unpacked over /usr/local as root.
+# gzip: unpacked on a possibly minimal image, where it is the one always there.
+# Explicit root ownership, since it is unpacked over /usr/local as root.
 tar czf "$SCRIPT_DIR/usrlocal.tar.gz" -C /usr/local \
     --owner=0 --group=0 --numeric-owner -T "$work/payload.txt"
 
 # ---------------------------------------------------------------------------
-# runtime dependencies of the payload, derived from the payload
+# 3. runtime dependencies of the payload, derived from the payload
 # ---------------------------------------------------------------------------
 
-# Which apt packages install-cam.sh has to pull in before the tarball's
-# binaries will run. Derived here rather than maintained by hand in the
-# consumer: the names are release-specific (libavcodec61, libqt5core5t64,
-# libboost-program-options1.83.0), so a hand-kept list would name the previous
-# release's packages the first time this payload is regenerated on a new one -
-# and the manifest check would wave that through, because everything else it
-# compares would have been updated correctly.
-#
-# Direct DT_NEEDED only; apt resolves the rest of the closure. The libraries
-# the payload ships for itself are excluded, as are the packages every Debian
-# system has by definition.
+# Direct DT_NEEDED only; apt resolves the rest of the closure. Excluded: what
+# the payload ships for itself, and what every Debian system has by definition.
 echo "make-prebuilt.sh: deriving runtime dependencies"
 
 while IFS= read -r rel; do
@@ -139,31 +134,23 @@ if [ -z "$runtime_packages" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# manifest
+# 4. manifest
 # ---------------------------------------------------------------------------
 
 . /etc/os-release
+: "${ID:=}" "${VERSION_ID:=}"  # missing on rolling images, and set -u is on
 
-# VERSION_ID is optional in the os-release spec and missing on rolling images;
-# without a default, set -u would abort here rather than record it as empty.
-: "${ID:=}" "${VERSION_ID:=}"
-
-# The real file, not the two symlinks pointing at it - it carries the full
-# version, which is the informative part.
+# The real file, not the symlinks: it carries the full version.
 libcamera_ver=$(find /usr/local/lib -maxdepth 2 -type f -name 'libcamera.so.*' -printf '%f\n' 2>/dev/null | sort -V | tail -1)
 [ -n "$libcamera_ver" ] || libcamera_ver=unknown
 
-# Every value is single-quoted: install-cam.sh sources this file, and an
-# unquoted value containing so much as a parenthesis is a syntax error there.
 cat > "$SCRIPT_DIR/manifest" <<EOF
 # Generated by make-prebuilt.sh - do not edit by hand.
 #
-# Sourced as shell by install-cam.sh, so keep it KEY='VALUE'.
-#
-# The first four are the pins: install-cam.sh refuses the payload and builds
-# from source when the running system does not match them. The fifth is what
-# the payload needs installed before it will run. The rest is provenance,
-# written for whoever is looking at a checkout and wondering what this is.
+# Sourced as shell by install-cam.sh, so keep every value single-quoted: an
+# unquoted parenthesis is a syntax error there. The first four are the pins it
+# refuses the payload on, the fifth is what the payload needs installed before
+# it will run, the rest is provenance.
 PREBUILT_KERNEL='$KVER'
 PREBUILT_ARCH='$KARCH'
 PREBUILT_OS_ID='$ID'

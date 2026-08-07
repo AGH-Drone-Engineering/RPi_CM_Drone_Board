@@ -1,9 +1,8 @@
 [Unit]
 Description=Fetch ESP-provided configuration via loracom and publish it as environment variables
-# ttyAMA3, not serial0: serial0 is the primary/console UART (ttyAMA10 on a
-# CM5), while loracom talks to the HAT over UART3. Ordering against serial0
-# guarantees nothing about the device bootstrap.sh actually needs, and the
-# service then starts before /dev/ttyAMA3 exists and restart-loops on -ENODEV.
+# ttyAMA3, not serial0 (the console UART): ordering against serial0 guarantees
+# nothing about the device bootstrap.sh needs, and the service then starts
+# before /dev/ttyAMA3 exists and restart-loops on -ENODEV.
 After=dev-ttyAMA3.device
 Wants=dev-ttyAMA3.device
 Before=multi-user.target

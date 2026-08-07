@@ -51,7 +51,18 @@ Same exchange as GETMSG with a message queued, but `id` is always `0`.
 <- GETCONF(len=N, id=0) + payload
 -> ACK
 ----
-Payload is a fixed format: whitespace-separated `VARIABLE=VALUE` pairs. By default it contains a single variable, `CMDB_ID`, set to the ESP's own address.
+Payload is a fixed format: whitespace-separated `VARIABLE=VALUE` pairs. No value may contain whitespace — that's what the pairs are separated by, and the host word-splits the payload to consume them. Two variables are always present:
+
+[cols="1,3"]
+|===
+|Variable |Value
+
+|`CMDB_ID`
+|The ESP's own address.
+
+|`CMDB_ESP_FIRMWARE_BUILD`
+|The abbreviated (8-character) git commit the HAT firmware was built from, suffixed `-dirty` if the firmware's own sources differed from that commit at build time, or the literal `unknown` if the build had no usable git checkout to read.
+|===
 
 == Checksum
 

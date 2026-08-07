@@ -1,4 +1,5 @@
 #include <RFNode.h>
+#include <cstring>
 #include "UartRfBridge.h"
 
 // Logger write function for USB-CDC (Serial) output.
@@ -43,7 +44,7 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define LORA_MOSI 41
 #define LORA_MISO 42
 
-// Killswitch pin
+// Killswitch pins
 #define KILLSWITCH_FC_CTL 1
 #define KILLSWITCH_PSU_CTL 6
 
@@ -58,13 +59,14 @@ static const char *beginStatusToStr(BeginStatus bs)
 #define RPI_UART_RX 18
 #define RPI_UART_BAUD 115200
 
+#define KILL_PAYLOAD "KILL"
+static constexpr size_t KILL_PAYLOAD_LEN = sizeof(KILL_PAYLOAD) - 1;
+
+// Only the ground panel may kill
+static constexpr uint8_t KILL_MASTER_ADDR = 0xFE;
+
 // Node address is set by the five solder jumpers JP1..JP5 (schematic labels
 // ADDR1/2/4/8/16, pcb_IARC_HAT/comm.kicad_sch), least significant bit first.
-// Each jumper ties its GPIO either to the ADDR_HIGH rail (+3.3V through 1K) or
-// to GND, so a bridged-high jumper reads 1. The jumpers ship open, hence
-// INPUT_PULLDOWN below: an unbridged jumper must read a stable 0 rather than
-// float. Range is therefore 0..31, and 0 means "no jumpers set" - not a usable
-// address (RFNodeConfig requires [0x01, 0xFE]).
 static const uint8_t ADDR_PINS[] = {10, 11, 12, 13, 14};
 static constexpr size_t ADDR_BITS = sizeof(ADDR_PINS) / sizeof(ADDR_PINS[0]);
 
@@ -88,6 +90,13 @@ static RFNodeConfig nodeCfg = []()
 static RFNode *node = nullptr;
 static UartRfBridge *bridge = nullptr;
 
+// Runs on the RF worker task. Safe to call twice - it only ever drives pins low.
+static void engageKillswitch()
+{
+    digitalWrite(KILLSWITCH_FC_CTL, LOW);
+    digitalWrite(KILLSWITCH_PSU_CTL, LOW);
+}
+
 static uint8_t readAddrJumpers()
 {
     for (uint8_t pin : ADDR_PINS)
@@ -110,8 +119,8 @@ void setup()
 
     pinMode(KILLSWITCH_FC_CTL, OUTPUT);
     pinMode(KILLSWITCH_PSU_CTL, OUTPUT);
-
-    digitalWrite(KILLSWITCH_FC_CTL, HIGH);
+    
+    digitalWrite(KILLSWITCH_FC_CTL, LOW);
     digitalWrite(KILLSWITCH_PSU_CTL, HIGH);
 
     // Default RX ring buffer can't hold a full max-size protocol frame
@@ -138,7 +147,19 @@ void setup()
     bridge = &bridgeObj;
 
     // Wire RFNode events to the bridge (handler bodies live in UartRfBridge).
-    node->onReceive(UartRfBridge::onReceiveTrampoline, bridge);
+    node->onReceive(
+        // A KILL from the ground panel drops both gates; everything reaches the bridge.
+        [](const RxInfo &info, const uint8_t *data, size_t len, void *ctx)
+        {
+            if (info.from == KILL_MASTER_ADDR && !info.broadcast &&
+                len == KILL_PAYLOAD_LEN && memcmp(data, KILL_PAYLOAD, KILL_PAYLOAD_LEN) == 0)
+            {
+                engageKillswitch();
+                LOG_W("main", "KILL from 0x%02X — killswitch engaged (FC/PSU low)", info.from);
+            }
+            UartRfBridge::onReceiveTrampoline(info, data, len, ctx);
+        },
+        bridge);
     node->onSendOk(UartRfBridge::onSendOkTrampoline, bridge);
     node->onSendFail(UartRfBridge::onSendFailTrampoline, bridge);
 
@@ -151,9 +172,17 @@ void setup()
         while (1)
             delay(1000);
     }
-    node->startWorkerTask();
 
-    LOG_I("main", "ready addr=0x%02X (from jumpers)", myAddr);
+    if (!node->startWorkerTask())
+    {
+        LOG_E("main", "boot_error reason=worker_task_start_failed");
+        while (1)
+            delay(1000);
+    }
+
+    // Radio is up, so the aircraft may have power.
+    digitalWrite(KILLSWITCH_FC_CTL, HIGH);
+    LOG_I("main", "armed addr=0x%02X (from jumpers) build=%s", myAddr, CMDB_ESP_FIRMWARE_BUILD);
 }
 
 void loop()
