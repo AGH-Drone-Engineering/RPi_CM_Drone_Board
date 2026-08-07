@@ -503,7 +503,7 @@
       "missing_input_pin": "warning",
       "missing_power_pin": "error",
       "missing_unit": "warning",
-      "multiple_net_names": "error",
+      "multiple_net_names": "warning",
       "net_not_bus_member": "error",
       "no_connect_connected": "error",
       "no_connect_dangling": "error",
@@ -557,7 +557,7 @@
       },
       {
         "bus_width": 12,
-        "clearance": 0.1016,
+        "clearance": 0.1191,
         "diff_pair_gap": 0.2032,
         "diff_pair_width": 0.1328,
         "line_style": 0,
@@ -575,7 +575,7 @@
       },
       {
         "bus_width": 12,
-        "clearance": 0.1016,
+        "clearance": 0.1537,
         "diff_pair_gap": 0.2032,
         "diff_pair_width": 0.1676,
         "line_style": 0,
@@ -711,7 +711,7 @@
           "group_by": true,
           "label": "Footprint",
           "name": "Footprint",
-          "show": false
+          "show": true
         },
         {
           "group_by": false,
@@ -750,12 +750,12 @@
           "show": true
         }
       ],
-      "filter_string": "FB",
+      "filter_string": "",
       "group_symbols": false,
       "include_excluded_from_bom": false,
       "name": "",
       "sort_asc": true,
-      "sort_field": "Description"
+      "sort_field": "Footprint"
     },
     "bus_aliases": {
       "ETH": [
@@ -917,7 +917,7 @@
         "uuid": "e63e39d7-6ac0-4ffd-8aa3-1841a4541b55"
       }
     ],
-    "used_designators": "R27,R33-39,R41-45,J1,J3-4,J10,J18-23,D12,D15,D17-18,#PWR7-9,#PWR14,#PWR26,#PWR45,#PWR64,#PWR68-83,TP19,C4,C18,C23-25,C27-52,Q1,U2-3,U8,FB1-6,JP3-5,JP11,TR1-2,TVS1-7",
+    "used_designators": "J1,J3-4,J10,J18-23,R2-6,R12,R23,R27,R31,R33-57,#PWR7-9,#PWR11-12,#PWR14,#PWR25-27,#PWR37-38,#PWR45,#PWR64,#PWR68-97,D2-3,D9,D12,D15,D17-18,TP3,TP7,TP19,C4-5,C17-18,C23-25,C27-73,Q1-4,U2-4,U8-11,FB1-6,JP3-5,JP11-14,TR1-2,Y1,TVS1-7,NT1-8",
     "variants": []
   },
   "sheets": [
@@ -934,8 +934,12 @@
       "Ethernet Connectors"
     ],
     [
+      "823b4335-13e1-4406-ba79-5261201e2387",
+      "Platform Controller"
+    ],
+    [
       "7113be25-0166-4101-9dfa-c42ffe60d6fd",
-      "Ethernet Switch"
+      "Eth Switch"
     ],
     [
       "448c80b4-5b88-47b0-9a11-edd6014e6d44",
@@ -946,12 +950,12 @@
       "CM5"
     ],
     [
-      "823b4335-13e1-4406-ba79-5261201e2387",
-      "Platform Controller"
-    ],
-    [
       "a59264d7-054d-4c65-ae53-514c511956e6",
       "IO Connectors"
+    ],
+    [
+      "f129792c-8e87-49cd-a590-92d25e0d2cd7",
+      "PSU Converters"
     ]
   ],
   "text_variables": {},

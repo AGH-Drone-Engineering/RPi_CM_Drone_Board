@@ -1,12 +1,12 @@
-(footprint "M.2 M Key socket"
-	(version 20241229)
+(footprint "M.2_M_Key_socket_2260"
+	(version 20260206)
 	(generator "pcbnew")
-	(generator_version "9.0")
+	(generator_version "10.0")
 	(layer "F.Cu")
 	(property "Reference" "REF**"
 		(at -7.62 -10.287 0)
 		(layer "F.SilkS")
-		(uuid "870c1bf4-cdb9-4e51-bd37-a1b37e730674")
+		(uuid "c2afc197-caef-4957-982c-f81531c8fbfb")
 		(effects
 			(font
 				(size 1 1)
@@ -14,10 +14,10 @@
 			)
 		)
 	)
-	(property "Value" "M.2 M Key socket"
+	(property "Value" "M.2_M_Key_socket_2260"
 		(at 2.54 -8.255 0)
 		(layer "F.Fab")
-		(uuid "debde141-a1ed-4b9e-9942-71d9b9bb178f")
+		(uuid "6eb1a7b1-2949-4524-a551-69fe31154f0b")
 		(effects
 			(font
 				(size 1 1)
@@ -30,11 +30,10 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "a14e199f-f449-4c98-b7fd-92cdf31cd585")
+		(uuid "11779a01-72db-41e5-b94a-dc72c86768df")
 		(effects
 			(font
 				(size 1.27 1.27)
-				(thickness 0.15)
 			)
 		)
 	)
@@ -43,17 +42,17 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "67a67510-14b2-49f5-8ae0-a18bcc702033")
+		(uuid "75f4274a-a807-41c8-8638-aea31c25fcf1")
 		(effects
 			(font
 				(size 1.27 1.27)
-				(thickness 0.15)
 			)
 		)
 	)
+	(duplicate_pad_numbers_are_jumpers no)
 	(fp_line
-		(start -11.5 0)
-		(end -11.5 40.25)
+		(start -11.5 -0.25)
+		(end -11.5 58.25)
 		(stroke
 			(width 0.1)
 			(type default)
@@ -80,6 +79,16 @@
 		)
 		(layer "F.SilkS")
 		(uuid "f44acbf7-5377-419c-9bcf-339c62666c6d")
+	)
+	(fp_line
+		(start -11.5 58.25)
+		(end -4 58.25)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "13c75ace-037c-4540-a9ec-fa31735d33e9")
 	)
 	(fp_line
 		(start -11 2.48)
@@ -120,6 +129,16 @@
 		)
 		(layer "F.SilkS")
 		(uuid "c66c2f3e-e6a6-4df4-9d02-7f82d4d3cc55")
+	)
+	(fp_line
+		(start 4 58.25)
+		(end 11.5 58.25)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "F.SilkS")
+		(uuid "6fd18eef-4c91-4bc6-839c-d5429b4db7bc")
 	)
 	(fp_line
 		(start 5.2135 -5.7)
@@ -172,8 +191,8 @@
 		(uuid "4d1dff5e-f886-4806-825a-57fbf67dbcac")
 	)
 	(fp_line
-		(start 11.5 40.25)
-		(end 11.5 0)
+		(start 11.5 58.25)
+		(end 11.5 -0.25)
 		(stroke
 			(width 0.1)
 			(type default)
@@ -283,37 +302,24 @@
 		(layer "F.Fab")
 		(uuid "aa978133-4db1-4dfb-b0a3-903ea251e8d6")
 	)
-	(fp_text user "2230"
-		(at 10 28.75 180)
-		(unlocked yes)
-		(layer "F.SilkS")
-		(uuid "4ce6f1f0-c8fd-43dd-9dfc-8eaa85350299")
-		(effects
-			(font
-				(size 1 1)
-				(thickness 0.1)
-			)
-			(justify left bottom)
-		)
-	)
-	(fp_text user "M.2 M Key"
-		(at -3.9 5.5 0)
-		(unlocked yes)
-		(layer "F.SilkS")
-		(uuid "71fbe4fd-8d7c-440b-94bf-6dcef6e854ea")
-		(effects
-			(font
-				(size 1 1)
-				(thickness 0.1)
-			)
-			(justify left bottom)
-		)
-	)
 	(fp_text user "2242"
-		(at 10 40.75 180)
+		(at -10 39.75 0)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "782f7b38-d6c2-4d4a-aed4-7457839e41b3")
+		(uuid "bb74da0c-132b-4cf6-8fa1-535334880b03")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "2260"
+		(at -10 57.75 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "7e3d3f21-a2df-4171-b934-16c478156e07")
 		(effects
 			(font
 				(size 1 1)
@@ -335,11 +341,50 @@
 			(justify left bottom)
 		)
 	)
-	(fp_text user "2242"
-		(at -10 39.75 0)
+	(fp_text user "M.2 M Key"
+		(at -3.9 5.5 0)
 		(unlocked yes)
 		(layer "F.SilkS")
-		(uuid "bb74da0c-132b-4cf6-8fa1-535334880b03")
+		(uuid "71fbe4fd-8d7c-440b-94bf-6dcef6e854ea")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "2230"
+		(at 10 28.75 180)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "4ce6f1f0-c8fd-43dd-9dfc-8eaa85350299")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "2242"
+		(at 10 40.75 180)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "782f7b38-d6c2-4d4a-aed4-7457839e41b3")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+			(justify left bottom)
+		)
+	)
+	(fp_text user "2260"
+		(at 10 58.75 180)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "bac7ca2b-c525-4e28-ab9b-2c8593adde2c")
 		(effects
 			(font
 				(size 1 1)
@@ -848,6 +893,15 @@
 		(remove_unused_layers no)
 		(solder_mask_margin 0.2)
 		(uuid "38e1a50c-b6a5-477f-a18f-4c4598a553c2")
+	)
+	(pad "M3" thru_hole circle
+		(at 0 58.25)
+		(size 5.8 5.8)
+		(drill 3.7)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(solder_mask_margin 0.2)
+		(uuid "088a3ef9-39b1-4e37-94f5-535ce6532672")
 	)
 	(pad "S1" smd rect
 		(at -10.35 -4.5)
