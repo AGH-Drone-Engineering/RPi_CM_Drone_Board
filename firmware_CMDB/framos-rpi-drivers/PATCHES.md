@@ -160,8 +160,10 @@ exposure range and never touched the sensor, frame length having been owned by
 `frame_rate` alone. It now updates `imx900->frame_length` - which the exposure
 range, SHS and the stop-streaming delay all read back - and writes VMAX.
 
-At 1032x776 12-bit this takes the exposure ceiling from 840 to 120,954 lines
-(6.9 ms to ~1 s), and `--framerate`, `--shutter` and libcamera's AGC all work.
+At 1032x776 12-bit VBLANK goes from a pinned 115 to a range of 115..120,952,
+which by `exposure_max = vblank + height - min_shs_length` takes the exposure
+ceiling from 840 to 121,677 lines - 6.9 ms to ~1 s. `--framerate`, `--shutter`
+and libcamera's AGC all work.
 
 ### Caveat
 
