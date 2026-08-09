@@ -13,6 +13,14 @@
 # MAVProxy listens rather than connects (udpin), so any number of ground
 # stations can attach to port 14550 without this knowing their addresses.
 # It comes from pip, in install-utils.sh.
+#
+# The 5V rail is fed either by the onboard buck or by VBUS from the USB-C
+# connector. Off the buck nothing negotiates a contract, so the firmware assumes
+# the weakest supply and budgets 600mA for everything on USB together. 
+# usb_max_current_enable below lifts that to 1.6A.
+# PSU_MAX_CURRENT in the bootloader EEPROM would lift it too, but is left as default, 
+# same so a USB-C supply really negotiate.
+
 set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -46,7 +54,7 @@ cat <<EOF
 install-cmdb-base.sh changes the following:
   * $ENV_FILE: CMDB_HARDWARE_REVISION, CMDB_HARDWARE_TYPE
   * hostname: $HOSTNAME_PREFIX-<mac>, until the HAT provides the real one
-  * config.txt: uart0 enabled ($FC_UART_DEVICE, the FC link)
+  * config.txt: uart0 enabled ($FC_UART_DEVICE, the FC link), usb_max_current_enable=1
   * $MAVLINK_SERVICE: MAVProxy bridging $FC_UART_DEVICE to udpin:0.0.0.0:$MAVLINK_UDP_PORT
 EOF
 
@@ -97,7 +105,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 3. FC UART
+# 3. config.txt: FC UART and the USB current budget
 # ---------------------------------------------------------------------------
 
 # Older firmware only ships the non-suffixed overlay.
@@ -108,9 +116,12 @@ else
     echo "install-cmdb-base.sh: WARNING: $OVERLAY_DIR/uart0-pi5.dtbo missing, falling back to 'dtoverlay=uart0' - update your firmware if $FC_UART_DEVICE doesn't show up after the reboot" >&2
 fi
 
-echo "install-cmdb-base.sh: enabling uart0 ($FC_UART_OVERLAY) in $CONFIG_TXT"
-configtxt_set_block cmdb-base <<EOF
+# The disable regex kills any hand-added usb_max_current_enable: a stray =0
+# somewhere later in the file would put the 600mA cap straight back.
+echo "install-cmdb-base.sh: enabling uart0 ($FC_UART_OVERLAY) and lifting the USB current limit in $CONFIG_TXT"
+configtxt_set_block cmdb-base '^[[:space:]]*usb_max_current_enable=' <<EOF
 dtoverlay=$FC_UART_OVERLAY
+usb_max_current_enable=1
 EOF
 
 # A login console on the same device would eat the MAVLink stream. Not the

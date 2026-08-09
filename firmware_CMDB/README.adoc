@@ -81,6 +81,7 @@ Tried in order, each falling through to the next. `<mac>` is the first non-loopb
 * `/etc/environment`: `CMDB_HARDWARE_REVISION=1`, `CMDB_HARDWARE_TYPE=STANDARD`
 * hostname: `CMDB-<mac>`, see <<Hostname>>
 * `config.txt`: `dtoverlay=uart0-pi5` — GPIO14/GPIO15, giving `/dev/ttyAMA0`. That's `J_FC_UART` on the IARC HAT, i.e. the flight controller; a serial console on that device is disabled if one is enabled.
+* `config.txt`: `usb_max_current_enable=1` — off the onboard buck nothing negotiates a PD contract, so the firmware caps all of USB at 600mA; this lifts it to 1.6A. Safe on USB-C too, since VBUS is limited to ~2.1A in hardware (U6). `PSU_MAX_CURRENT` is deliberately left out of the EEPROM: `CC1`/`CC2` run to the module, so on USB-C a contract really is negotiated.
 * `cmdb-mavlink.service`: MAVProxy, enabled at boot
 
 [source,sh]
