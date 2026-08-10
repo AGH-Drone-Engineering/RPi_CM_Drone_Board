@@ -71,7 +71,7 @@ static const uint8_t ADDR_PINS[] = {10, 11, 12, 13, 14};
 static constexpr size_t ADDR_BITS = sizeof(ADDR_PINS) / sizeof(ADDR_PINS[0]);
 
 static SPIClass loraSPI;
-static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU868_CH0,
+static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::US915_CH0,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
 // addr is left at its default here and filled in from the jumpers in setup() -

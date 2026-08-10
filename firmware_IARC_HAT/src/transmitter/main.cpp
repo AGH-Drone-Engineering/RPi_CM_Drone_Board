@@ -21,7 +21,7 @@
 
 static FreeRtosOsal osal;
 static SPIClass loraSPI;
-static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU868_CH0,
+static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::US915_CH0,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
 // Per-node runtime config (RFNodeConfig, see RFNode.h) — addr must be unique

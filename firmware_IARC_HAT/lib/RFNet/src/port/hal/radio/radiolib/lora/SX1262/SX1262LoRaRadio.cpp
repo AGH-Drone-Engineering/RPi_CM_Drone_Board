@@ -59,6 +59,10 @@ bool SX1262LoRaRadio::init() {
     if (!RadioLibLoRaRadio<::SX1262>::init()) {
         return false;  // base already logged the specific RadioLib error code
     }
+    int16_t err = radio.setRxBoostedGainMode(true);
+    if (err != RADIOLIB_ERR_NONE) {
+        LOG_W("SX1262", "init: setRxBoostedGainMode failed err=%d", (int)err);
+    }
     if (selectChannel(_channel) != ChannelResult::OK) {
         return false;  // selectChannel logged the specific failure
     }
@@ -92,6 +96,11 @@ SX1262LoRaRadio::ChannelResult SX1262LoRaRadio::selectChannel(Channel ch, Channe
     if ((err = radio.setOutputPower(txPowerDbm)) != RADIOLIB_ERR_NONE) {
         LOG_W("SX1262", "selectChannel: setOutputPower(%d dBm) failed err=%d",
               (int)txPowerDbm, (int)err);
+        return ChannelResult::RADIO_ERROR;
+    }
+
+    if ((err = radio.setCurrentLimit(140.0f)) != RADIOLIB_ERR_NONE) {
+        LOG_W("SX1262", "selectChannel: setCurrentLimit(140 mA) failed err=%d", (int)err);
         return ChannelResult::RADIO_ERROR;
     }
 
