@@ -86,10 +86,10 @@ Tried in order, each falling through to the next. `<mac>` is the first non-loopb
 
 [source,sh]
 ----
-mavproxy.py --master=/dev/ttyAMA0,57600 --out=udpin:0.0.0.0:14550 --daemon --state-basedir=/var/log/mavproxy
+mavproxy.py --master=/dev/ttyAMA0,57600 --out=udpin:0.0.0.0:14550 --out=udpin:0.0.0.0:14551 --daemon --state-basedir=/var/log/mavproxy
 ----
 
-Device, baud and port are variables at the top of the script and the unit is generated from them. `udpin` listens rather than pushing to a fixed address, so point a GCS at `udp://<board>:14550`. MAVProxy itself comes from `install-utils.sh`.
+Device, baud and the port list are variables at the top of the script and the unit is generated from them — one `--out` per port in `MAVLINK_UDP_PORTS`. `udpin` listens rather than pushing to a fixed address, so point a GCS at `udp://<board>:14550` or `udp://<board>:14551`. MAVProxy itself comes from `install-utils.sh`.
 
 === install-utils.sh
 
