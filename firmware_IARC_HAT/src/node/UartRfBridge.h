@@ -8,7 +8,7 @@
 // The commit this firmware was built from, generated into $BUILD_DIR by
 // scripts/git_version.py (wired in as a pre-build extra_script, which also puts
 // $BUILD_DIR on the include path). Lives here rather than in the .cpp because
-// main.cpp logs it at boot too. Guarded so this still compiles if the generator
+// the mains log it at boot too. Guarded so this still compiles if the generator
 // didn't run - a hand-rolled build, a stripped source export - in which case
 // the stamp reads "unknown", the same fallback firmware_CMDB/loracom/main.cpp
 // uses.
@@ -28,10 +28,16 @@ enum class FrameType : uint8_t
     ACK = 'A',
 };
 
+// Shared by both variants built from this directory (main_node.cpp, which speaks
+// the protocol over the RPi UART, and main_phone.cpp, which speaks it over
+// USB-CDC to a phone). The transport is the only difference between them, and
+// Stream is enough to erase it: HardwareSerial and HWCDC - what `Serial` is with
+// ARDUINO_USB_CDC_ON_BOOT=1 - share nothing else, and the parser needs nothing
+// beyond available()/read()/write().
 class UartRfBridge
 {
 public:
-    UartRfBridge(RFNode &node, HardwareSerial &uart, uint8_t myAddr);
+    UartRfBridge(RFNode &node, Stream &uart, uint8_t myAddr);
 
     void poll();
 
@@ -66,7 +72,7 @@ private:
     static constexpr size_t MAX_QUEUED_TX = 4;
 
     RFNode &_node;
-    HardwareSerial &_uart;
+    Stream &_uart;
     uint8_t _myAddr;
 
     QueueHandle_t _rxQueue;
