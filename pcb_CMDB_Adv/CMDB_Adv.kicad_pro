@@ -64,8 +64,8 @@
           "min_clearance": 0.0,
           "min_island_area": 10.0,
           "min_thickness": 0.25,
-          "pad_connection": 1,
-          "remove_islands": 0,
+          "pad_connection": 2,
+          "remove_islands": 1,
           "thermal_relief_gap": 0.5,
           "thermal_relief_spoke_width": 0.5
         }
@@ -617,7 +617,7 @@
       },
       {
         "netclass": "100R",
-        "pattern": "/*/MIPI*.D*"
+        "pattern": "/*/MIPI*.*"
       },
       {
         "netclass": "100R",
@@ -644,12 +644,20 @@
         "pattern": "/*/ETH*.*"
       },
       {
+        "netclass": "Default",
+        "pattern": "/CM5/+3V3STB"
+      },
+      {
         "netclass": "PWR",
-        "pattern": "/*/+*"
+        "pattern": "/*/\\+(?!3V3STB$).*"
       },
       {
         "netclass": "PWR",
         "pattern": "/+*"
+      },
+      {
+        "netclass": "PWR",
+        "pattern": "/*/+3V3RPi"
       }
     ]
   },
@@ -917,7 +925,7 @@
         "uuid": "e63e39d7-6ac0-4ffd-8aa3-1841a4541b55"
       }
     ],
-    "used_designators": "J1,J3-4,J10,J18-23,R2-6,R12,R23,R27,R31,R33-57,#PWR7-9,#PWR11-12,#PWR14,#PWR25-27,#PWR37-38,#PWR45,#PWR64,#PWR68-97,D2-3,D9,D12,D15,D17-18,TP3,TP7,TP19,C4-5,C17-18,C23-25,C27-73,Q1-4,U2-4,U8-11,FB1-6,JP3-5,JP11-14,TR1-2,Y1,TVS1-7,NT1-8",
+    "used_designators": "J1,J3-4,J10,J18-26,R2-6,R12,R23-25,R27,R31,R33-58,#PWR7-9,#PWR11-12,#PWR14,#PWR25-27,#PWR37-38,#PWR45,#PWR64,#PWR67-98,D2-3,D9,D11-12,D15,D17-18,TP3-5,TP7,TP13,TP19,C4-5,C17-18,C23-25,C27-73,Q1-4,U2-4,U8-11,FB1-6,JP3-5,JP11-14,TR1-2,Y1,TVS1-7,NT1-8,M4-5",
     "variants": []
   },
   "sheets": [

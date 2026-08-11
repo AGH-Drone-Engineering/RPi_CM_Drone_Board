@@ -4564,8 +4564,9 @@
 		)
 	)
 	(symbol
-		(lib_id "CMDB_Adv:M.2_Screw")
-		(at 260.35 142.24 0)
+		(lib_id "CMDB_Adv:SolderNut")
+		(at 276.86 143.51 0)
+		(mirror y)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim yes)
@@ -4574,9 +4575,9 @@
 		(in_pos_files yes)
 		(dnp no)
 		(fields_autoplaced yes)
-		(uuid "91a6e385-8577-49eb-b867-1861d45af64f")
-		(property "Reference" "M3"
-			(at 267.97 140.9699 0)
+		(uuid "7af7206e-c0a6-4c0c-8caf-f7bc985aef89")
+		(property "Reference" "M5"
+			(at 271.78 142.2399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4586,8 +4587,8 @@
 				(justify left)
 			)
 		)
-		(property "Value" "M.2 Screw"
-			(at 267.97 143.5099 0)
+		(property "Value" "M.2 Solder Nut"
+			(at 271.78 144.7799 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4598,7 +4599,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 260.35 142.24 0)
+			(at 276.86 143.51 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4609,7 +4610,161 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 260.35 142.24 0)
+			(at 276.86 143.51 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Solder nut for M.2 slot"
+			(at 276.86 143.51 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "CMDB_Adv"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/bcd581d4-623c-482f-9f93-14cd226a9d2f"
+					(reference "M5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "CMDB_Adv:SolderNut")
+		(at 276.86 133.35 0)
+		(mirror y)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim yes)
+		(in_bom yes)
+		(on_board no)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "8757ac64-b0af-42ce-82f9-9714243a4e12")
+		(property "Reference" "M4"
+			(at 271.78 132.0799 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M.2 Solder Nut"
+			(at 271.78 134.6199 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 276.86 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 276.86 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Solder nut for M.2 slot"
+			(at 276.86 133.35 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "CMDB_Adv"
+				(path "/e63e39d7-6ac0-4ffd-8aa3-1841a4541b55/bcd581d4-623c-482f-9f93-14cd226a9d2f"
+					(reference "M4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "CMDB_Adv:M.2_Screw")
+		(at 275.59 157.48 0)
+		(mirror y)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim yes)
+		(in_bom yes)
+		(on_board no)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "91a6e385-8577-49eb-b867-1861d45af64f")
+		(property "Reference" "M3"
+			(at 267.97 156.2099 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "M.2 Screw"
+			(at 267.97 158.7499 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 275.59 157.48 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 275.59 157.48 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4620,7 +4775,7 @@
 			)
 		)
 		(property "Description" "M.2 Screw"
-			(at 260.35 142.24 0)
+			(at 275.59 157.48 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4641,7 +4796,8 @@
 	)
 	(symbol
 		(lib_id "CMDB_Adv:SolderNut")
-		(at 257.81 125.73 0)
+		(at 276.86 123.19 0)
+		(mirror y)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim yes)
@@ -4652,7 +4808,7 @@
 		(fields_autoplaced yes)
 		(uuid "9cb03503-7593-4624-99a4-78d3c087fff9")
 		(property "Reference" "M2"
-			(at 262.89 124.4599 0)
+			(at 271.78 121.9199 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4663,7 +4819,7 @@
 			)
 		)
 		(property "Value" "M.2 Solder Nut"
-			(at 262.89 126.9999 0)
+			(at 271.78 124.4599 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4674,7 +4830,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 257.81 125.73 0)
+			(at 276.86 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4685,7 +4841,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 257.81 125.73 0)
+			(at 276.86 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4696,7 +4852,7 @@
 			)
 		)
 		(property "Description" "Solder nut for M.2 slot"
-			(at 257.81 125.73 0)
+			(at 276.86 123.19 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4876,7 +5032,8 @@
 	)
 	(symbol
 		(lib_id "CMDB_Adv:SolderNut")
-		(at 257.81 113.03 0)
+		(at 276.86 113.03 0)
+		(mirror y)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim yes)
@@ -4887,7 +5044,7 @@
 		(fields_autoplaced yes)
 		(uuid "be9d4b43-843e-4249-a36f-5a0db4337599")
 		(property "Reference" "M1"
-			(at 262.89 111.7599 0)
+			(at 271.78 111.7599 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4898,7 +5055,7 @@
 			)
 		)
 		(property "Value" "M.2 Solder Nut"
-			(at 262.89 114.2999 0)
+			(at 271.78 114.2999 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4909,7 +5066,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 257.81 113.03 0)
+			(at 276.86 113.03 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4920,7 +5077,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 257.81 113.03 0)
+			(at 276.86 113.03 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4931,7 +5088,7 @@
 			)
 		)
 		(property "Description" "Solder nut for M.2 slot"
-			(at 257.81 113.03 0)
+			(at 276.86 113.03 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)

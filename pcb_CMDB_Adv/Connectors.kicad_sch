@@ -8387,7 +8387,7 @@
 	)
 	(rectangle
 		(start 149.86 15.24)
-		(end 232.41 82.55)
+		(end 232.41 95.25)
 		(stroke
 			(width 0)
 			(type dash)
@@ -8493,7 +8493,7 @@
 	)
 	(text "uart0 (14,15) routed\nuart1 (0,1) pins used for CAM (ID_SC/ID_SD)\nuart2 (4,5) routed\nuart3 (8,9) used for Platform Controller\nuart4 (12,13) pins unused\nuart10 - debug uart with CM5 header\n"
 		(exclude_from_sim no)
-		(at 191.008 88.9 0)
+		(at 198.882 88.646 0)
 		(effects
 			(font
 				(size 0.889 0.889)
@@ -8537,7 +8537,7 @@
 	)
 	(text "TODO:\n- Co z SD?\n- TVS na oba USB"
 		(exclude_from_sim no)
-		(at 26.924 96.52 0)
+		(at 34.544 95.25 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -17629,7 +17629,7 @@
 	)
 	(symbol
 		(lib_id "CMDB_Adv:TPD4E1B06")
-		(at 15.24 100.33 90)
+		(at 22.86 99.06 90)
 		(mirror x)
 		(unit 1)
 		(body_style 1)
@@ -17640,7 +17640,7 @@
 		(dnp no)
 		(uuid "22045324-d06d-453b-aeec-f2892c5fd1e9")
 		(property "Reference" "TVS6"
-			(at 15.24 107.696 90)
+			(at 22.86 106.426 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17650,7 +17650,7 @@
 			)
 		)
 		(property "Value" "TPD4E1B06"
-			(at 15.24 100.33 0)
+			(at 22.86 99.06 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17660,7 +17660,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 15.24 100.33 0)
+			(at 22.86 99.06 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -17671,7 +17671,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 15.24 100.33 0)
+			(at 22.86 99.06 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -17682,7 +17682,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 15.24 100.33 0)
+			(at 22.86 99.06 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
