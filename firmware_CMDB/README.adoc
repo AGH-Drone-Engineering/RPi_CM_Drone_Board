@@ -74,7 +74,7 @@ Tried in order, each falling through to the next. `<mac>` is the first non-loopb
 
 == Installation
 
-`sudo ./system-setup.sh` on a fresh CM5 image. It runs the four scripts below in order and does nothing else itself. *Reboot afterwards* for the `config.txt` changes. Everything is idempotent, each script prints what it changes on start, and each is usable on its own — the normal way to redeploy after a change. `common.sh` is a sourced helper, not something you run.
+`sudo ./system-setup.sh` on a fresh CM5 image. It runs the four scripts below in order, then disables the onboard Bluetooth — `dtoverlay=disable-bt-pi5` in its own `config.txt` block, plus `hciuart.service`, which would otherwise keep trying to bring up a radio that isn't there. Nothing on the drone uses Bluetooth and its radio shares the 2.4GHz band with the WiFi the board is reached over. That's the only change `system-setup.sh` makes on its own; run it (or add the overlay by hand) if you provision a board with the install scripts individually. *Reboot afterwards* for the `config.txt` changes. Everything is idempotent, each script prints what it changes on start, and each is usable on its own — the normal way to redeploy after a change. `common.sh` is a sourced helper, not something you run.
 
 === install-cmdb-base.sh
 
@@ -165,4 +165,4 @@ Only the tracked sources are kept — no `.git`, and build output is gitignored.
 
 Builds as the `sudo` user, so `loracom/obj` and `loracom/bin` stay writable for ordinary `make` afterwards.
 
-`install-cmdb-base.sh`, `install-cam.sh` and `install-loracom.sh` all edit `config.txt`, each in its own marked block, so they don't interfere and can be run in any order or individually.
+`install-cmdb-base.sh`, `install-cam.sh` and `install-loracom.sh` all edit `config.txt`, each in its own marked block — as does `system-setup.sh` for the Bluetooth overlay — so they don't interfere and can be run in any order or individually.
