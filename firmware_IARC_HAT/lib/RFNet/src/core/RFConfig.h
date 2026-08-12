@@ -8,6 +8,10 @@
 // Single source of truth for compile-time, user-tunable knobs.
 // All overridable via -D at build time; invariants enforced by static_assert below.
 
+#ifndef RF_PROMISCUOUS
+#  define RF_PROMISCUOUS 0
+#endif
+
 // Per-frame payload limit (bytes); last fragment of a message may carry fewer.
 // NETWORK INVARIANT: every node MUST use the same value — Reassembler validates
 // non-last fragments against exactly this size; mismatch drops all fragments at receiver.
@@ -76,10 +80,41 @@
 #  define RF_FRAME_BUF_SIZE MAX_PAYLOAD_SIZE
 #endif
 
-// CSMA-CA contention slots for pre-send/pre-forward jitter (window = K × ToA;
-// 0 disables jitter). Also feeds the auto-resolved mesh ACK timeout — raising it
-// lengthens mesh ACK timeouts (Engine::_resolveAckTimeoutMs) and, transitively,
-// the reassembly timeout (Engine::_reasmTimeoutMs).
+// Duration of one CSMA-CA contention slot (ms) — a PHY constant, as in 802.11
+// (aSlotTime) and 802.15.4 (20 symbols): turnaround plus the cost of deciding the
+// channel is free. Here that is the RSSI sampling cost, settle + sweep.
+//
+// A slot must NOT scale with the payload being sent: two nodes contend for the
+// channel identically whether they carry 13 B or 238 B. Sizing the window by
+// ToA(this frame), as RFNet did before, meant a 238 B frame at SF7/BW500 paid
+// ≈400 ms of dead air per send while a 30 B frame got barely one slot's worth.
+//
+// It deliberately does not scale with SF/BW either. The modulation-dependent part
+// of detecting a peer is CAD, and the chip already sizes that from the current
+// SF/BW (N symbols × symbol time) inside cca() — the window has no business
+// modelling it a second time, and a frame-airtime proxy for it overshoots wildly
+// on slow profiles. What the window has to do is merely break the tie between
+// simultaneous starters; anything that isn't simultaneous is caught by LBT, and
+// the resulting CHANNEL_BUSY wait is ToA-scaled where that IS correct
+// (Engine::_busyBackoffMs). Override this only if a build's CCA cost genuinely
+// differs — e.g. LONG_RANGE (SF12), where CAD alone runs tens of ms.
+#ifndef RF_JITTER_SLOT_MS
+#  define RF_JITTER_SLOT_MS (RF_CCA_SETTLE_MS + RF_CCA_TIMEOUT_MS)
+#endif
+
+// CSMA-CA contention slots for pre-send/pre-forward jitter; window =
+// RF_JITTER_WINDOW_SLOTS × RF_JITTER_SLOT_MS, drawn uniformly, mean half of it.
+// 0 disables jitter entirely.
+//
+// Set it to roughly the number of nodes that can start transmitting in the same
+// instant (a broadcast all peers answer, a synchronised telemetry tick) — that
+// is what the window has to spread out. With one transmitter at a time it buys
+// nothing and costs its mean on every frame: LBT plus the CHANNEL_BUSY backoff
+// already handle contention that isn't simultaneous.
+//
+// Also feeds the auto-resolved mesh ACK timeout — raising it lengthens mesh ACK
+// timeouts (Engine::_resolveAckTimeoutMs) and, transitively, the reassembly
+// timeout (Engine::_reasmTimeoutMs).
 #ifndef RF_JITTER_WINDOW_SLOTS
 #  define RF_JITTER_WINDOW_SLOTS 4
 #endif

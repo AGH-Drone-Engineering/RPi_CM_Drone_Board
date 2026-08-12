@@ -71,7 +71,7 @@ static const uint8_t ADDR_PINS[] = {10, 11, 12, 13, 14};
 static constexpr size_t ADDR_BITS = sizeof(ADDR_PINS) / sizeof(ADDR_PINS[0]);
 
 static SPIClass loraSPI;
-static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::US915_CH0,
+static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU869_DC10,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
 // addr is left at its default here and filled in from the jumpers in setup() -
@@ -115,6 +115,12 @@ static uint8_t readAddrJumpers()
 void setup()
 {
     Serial.begin(115200); // USB-CDC: boot/debug diagnostics only
+    // Diagnostics must never cost us RPi UART bytes. HWCDC::write blocks up to
+    // tx_timeout_ms (default 100) per call when a CDC host is attached but not
+    // draining, and loop() is the only thing servicing the UART RX ring - a few
+    // such stalls during a host burst overflow it. 1 ms caps the damage; lines
+    // are dropped instead of stalling the parser. (Unplugged CDC never blocks.)
+    Serial.setTxTimeoutMs(1);
     Logger::setWriteFn(&logToUsbCdc);
 
     pinMode(KILLSWITCH_FC_CTL, OUTPUT);
@@ -123,8 +129,17 @@ void setup()
     digitalWrite(KILLSWITCH_FC_CTL, LOW);
     digitalWrite(KILLSWITCH_PSU_CTL, HIGH);
 
-    // Default RX ring buffer can't hold a full max-size protocol frame
-    Serial0.setRxBufferSize(4096);
+    // Default RX ring buffer can't hold a full max-size protocol frame. Sized
+    // well past that so a host burst survives a stalled loop() too: 8 kB is
+    // ~700 ms of line time at 115200, and nothing in poll() should hold the task
+    // anywhere near that long.
+    Serial0.setRxBufferSize(8192);
+    // TX side of the same problem: with the 256 B default, sendFrame's write()
+    // blocks until the FIFO drains (a max-size GETMSG reply is ~260 ms of wire
+    // time at 115200) while nothing reads the RX ring. 4 kB holds any single
+    // reply, so write() returns at once and the UART drains in the background.
+    // Both setters must precede begin().
+    Serial0.setTxBufferSize(4096);
     Serial0.begin(RPI_UART_BAUD, SERIAL_8N1, RPI_UART_RX, RPI_UART_TX);
     delay(2000);
 

@@ -151,6 +151,7 @@ public:
             return false;
         }
 
+#if !RF_PROMISCUOUS
         // SW L2 filter — energy-saving early reject; Engine still re-checks
         // via L3.dst.
         const uint8_t l2dst = _txBuf[0];
@@ -158,6 +159,7 @@ public:
         {
             return false;
         }
+#endif
 
         const uint16_t l3Len = wireLen - 1u;
         memcpy(outPacket->data, _txBuf + 1, l3Len);

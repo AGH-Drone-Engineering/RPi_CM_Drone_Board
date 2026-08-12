@@ -556,10 +556,7 @@ void Engine::_routeTxReq(RFMessage* msg) {
     // Fragments never defer — they ARE the session.
     if (msg->_isFragment || !_sessionInFlight()) {
         if (!msg->_isFragment && !msg->_jitterApplied && _cfg.originatedJitter) {
-            const uint16_t tagLen = _cfg.sec ? CRYPTO_TAG_SIZE : 0;
-            const uint16_t frameLen = (uint16_t)PACKET_HEADER_SIZE
-                                    + (uint16_t)msg->payloadLen + tagLen;
-            const uint32_t delay = _jitterDelayMs(frameLen);
+            const uint32_t delay = _jitterDelayMs();
             if (delay > 0) {
                 msg->_jitterApplied = true;
                 if (_scheduleDelayedTx(msg, delay)) return;
@@ -714,13 +711,17 @@ uint32_t Engine::_resolveAckTimeoutMs(uint16_t dataFrameLen, uint8_t hopCount) c
     const uint8_t h = hopCount ? hopCount : 1;
     const uint32_t toaData = _radio.getAirtimeMs(dataFrameLen);
 
-    // Per-hop budget: 1x ToA transmission + K x ToA jitter window + worst-case
-    // CHANNEL_BUSY backoff over RF_FWD_RETRY_MAX retries. Without the retry term,
-    // a busy intermediate hop would spuriously trip the ACK timeout.
-    const uint32_t slotsPerHop = 1u + RF_JITTER_WINDOW_SLOTS
-                               + 2u * (uint32_t)RF_FWD_RETRY_MAX;
-    const uint32_t perHopData  = toaData * slotsPerHop;
-    const uint32_t perHopAck   = toaAck  * slotsPerHop;
+    // Per-hop budget: 1x ToA transmission + worst-case CHANNEL_BUSY backoff over
+    // RF_FWD_RETRY_MAX retries (each up to 2x ToA, see _busyBackoffMs), plus the
+    // forward jitter window. The jitter term is ADDITIVE and in ms, not a ToA
+    // multiplier: since RF_JITTER_SLOT_MS the window no longer scales with frame
+    // length, so folding it into slotsPerHop would misprice both ends — wildly
+    // over for large frames, under for small ones. Without the retry term, a busy
+    // intermediate hop would spuriously trip the ACK timeout.
+    const uint32_t slotsPerHop  = 1u + 2u * (uint32_t)RF_FWD_RETRY_MAX;
+    const uint32_t jitterWindow = (uint32_t)RF_JITTER_WINDOW_SLOTS * RF_JITTER_SLOT_MS;
+    const uint32_t perHopData   = toaData * slotsPerHop + jitterWindow;
+    const uint32_t perHopAck    = toaAck  * slotsPerHop + jitterWindow;
 
     const uint32_t out  = (h > 1) ? (uint32_t)(h - 1) * perHopData : 0;
     const uint32_t back = toaAck + ((h > 1) ? (uint32_t)(h - 1) * perHopAck : 0);
@@ -740,10 +741,11 @@ uint32_t Engine::_reasmTimeoutMs() const {
     return (worst > RF_REASM_TIMEOUT_MS) ? worst : RF_REASM_TIMEOUT_MS;
 }
 
-uint32_t Engine::_jitterDelayMs(uint16_t frameLen) {
-    const uint32_t toa = _radio.getAirtimeMs(frameLen);
-    const uint32_t window = toa * RF_JITTER_WINDOW_SLOTS;
+uint32_t Engine::_jitterDelayMs() const {
+    const uint32_t window = (uint32_t)RF_JITTER_WINDOW_SLOTS * RF_JITTER_SLOT_MS;
     if (window == 0) return 0;
+    // Independent of frame length and of getAirtimeMs — so it also works on HALs
+    // that report no airtime, which used to silently lose their jitter.
     return _osal.random() % (window + 1);
 }
 
@@ -954,6 +956,13 @@ void Engine::_sendMsg(RFMessage* msg) {
     }
 }
 
+// A promiscuous node must stay radio-silent. It now accepts frames addressed to
+// everyone, and ACKing those would inject ACKs the real recipient never sent -
+// the sender would see a phantom success and stop retrying. Gates the two ACK
+// paths in _handleRaw below rather than #if-ing them out, which would break the
+// else-if chain on the fragment side.
+static constexpr bool kAckEnabled = !RF_PROMISCUOUS;
+
 void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
     RoutingContext rctx{ _cfg.myAddr, _lastRssi };
 
@@ -969,7 +978,15 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
 
     ParsedPacket parsed = PacketParser::parse(raw, len, _cfg.sec);
     if (!parsed.valid) {
+#if RF_PROMISCUOUS
+        // Surfaced under Sniff, not Engine: a monitor filters Engine's chatter
+        // away, and without this line "channel is quiet" and "frames arriving
+        // that this key cannot open" look identical.
+        LOG_I("Sniff", "undecodable len=%u rssi=%d (wrong key, or not RFNet)",
+              (unsigned)len, (int)_lastRssi);
+#else
         LOG_W("Engine", "recv: dropped (invalid/auth fail) len=%u", (unsigned)len);
+#endif
         return;
     }
 
@@ -984,6 +1001,49 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
 
     if (src == _cfg.myAddr) return;
 
+#if RF_PROMISCUOUS
+    {
+        // The sniffer's whole output: one line per frame on the air, header and
+        // payload together. It has to be built here because this is the only
+        // place holding both — RxInfo carries no dst/seq/flags, and ACK frames
+        // return below without ever reaching the user callback.
+        //
+        // static rather than stack: 715 bytes is a large slice of the RF worker's
+        // stack, which _handleRaw already shares with a frame-sized forward
+        // buffer. Safe because the RX path is single-threaded, and a
+        // RF_PROMISCUOUS image has exactly one Engine.
+        static const char kHexDigits[] = "0123456789ABCDEF";
+        static char       hex[RF_MAX_PAYLOAD * 3 + 1];
+
+        // parse()'s upper bound is computed with the *fragmented* header size, so
+        // a frame carrying the short header can report up to two bytes more than
+        // RF_MAX_PAYLOAD. Clamp rather than trust it.
+        const uint16_t shown = (parsed.payloadLen <= RF_MAX_PAYLOAD)
+                             ? parsed.payloadLen
+                             : (uint16_t)RF_MAX_PAYLOAD;
+        size_t pos = 0;
+        for (uint16_t i = 0; i < shown; ++i) {
+            hex[pos++] = kHexDigits[parsed.payload[i] >> 4];
+            hex[pos++] = kHexDigits[parsed.payload[i] & 0x0Fu];
+            hex[pos++] = ' ';
+        }
+        hex[pos] = '\0';
+
+        // Keep this within LOGGER_BUFFER_SIZE: 11 B of log prefix + ~55 B of
+        // header + 3 B per payload byte. env:sniffer sets 1024 to cover it.
+        LOG_I("Sniff", "src=0x%02X dst=0x%02X seq=%lu len=%u rssi=%d%s%s%s%s | %s%s",
+              (unsigned)src, (unsigned)parsed.hdr.dst(), (unsigned long)seq,
+              (unsigned)parsed.payloadLen, (int)_lastRssi,
+              isAck                  ? " ACK"  : "",
+              parsed.hdr.ackReq()    ? " AREQ" : "",
+              parsed.fragmented      ? " FRAG" : "",
+              parsed.hdr.encrypted() ? " ENC"  : "",
+              hex,
+              shown < parsed.payloadLen ? "..." : "");
+    }
+#endif
+
+#if !RF_PROMISCUOUS
     if (isAck) {
         if (_seen.checkAndMark(src, parsed.hdr.dst(), seq, 1)) return;
     } else {
@@ -995,6 +1055,11 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
             return;
         }
     }
+#else
+    // Dedup deliberately skipped: a monitor wants to see retransmissions, and
+    // the windows are per-src state that only makes sense for traffic aimed at
+    // this node anyway.
+#endif
 
     if (isAck) {
         if (PacketParser::isForMe(parsed.hdr, _cfg.myAddr)) {
@@ -1034,7 +1099,9 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
         _scheduleForward(needFwdCopy ? forwardBuf : raw, len);
     }
 
+#if !RF_PROMISCUOUS
     if (!PacketParser::isForMe(parsed.hdr, _cfg.myAddr)) return;
+#endif
 
     // No key but frame encrypted: parse() skipped decrypt/auth, so `payload` is
     // ciphertext. Delivering/ACKing it would report false success.
@@ -1056,7 +1123,7 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
                                r.status == Reassembler::Status::Incomplete);
         // ACK only when requested (ACK_REQ); a no-ack session advances on
         // TX success alone.
-        if (accepted && parsed.hdr.ackReq() && parsed.hdr.dst() != ADDR_BROADCAST) {
+        if (kAckEnabled && accepted && parsed.hdr.ackReq() && parsed.hdr.dst() != ADDR_BROADCAST) {
             uint8_t  ackBuf[PACKET_HEADER_SIZE + ACK_ENC_PLAINTEXT_SIZE + CRYPTO_TAG_SIZE];
             uint8_t  ackHops = (_cfg.mode == PacketMode::Mesh) ? _cfg.hopCount : 0;
             uint16_t ackLen  = PacketBuilder::buildAck(
@@ -1101,7 +1168,7 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
 
     // ACK before the user callback: a blocking callback here, against the sender's
     // tight auto-resolved timeout, would turn delivered messages into false ACK_TIMEOUTs.
-    if (parsed.hdr.ackReq() && parsed.hdr.dst() != ADDR_BROADCAST) {
+    if (kAckEnabled && parsed.hdr.ackReq() && parsed.hdr.dst() != ADDR_BROADCAST) {
         uint8_t  ackBuf[PACKET_HEADER_SIZE + ACK_ENC_PLAINTEXT_SIZE + CRYPTO_TAG_SIZE];
         uint8_t  ackHops = (_cfg.mode == PacketMode::Mesh) ? _cfg.hopCount : 0;
         uint16_t ackLen  = PacketBuilder::buildAck(
@@ -1148,7 +1215,7 @@ void Engine::_handleRaw(uint8_t* raw, uint16_t len) {
 void Engine::_scheduleForward(const uint8_t* frame, uint16_t len) {
     if (len < PACKET_HEADER_SIZE || len > RF_FRAME_BUF_SIZE) return;
 
-    uint32_t delay = _cfg.forwardJitter ? _jitterDelayMs(len) : 0;
+    uint32_t delay = _cfg.forwardJitter ? _jitterDelayMs() : 0;
     uint32_t wake = _osal.tickMs() + delay;
 
     for (auto& e : _fwdQueue) {

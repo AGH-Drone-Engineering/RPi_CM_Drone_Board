@@ -89,7 +89,7 @@ static uint8_t readAddrJumpers()
 }
 
 static SPIClass loraSPI;
-static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::US915_CH0,
+static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU869_DC10,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
 static RFNodeConfig nodeCfg = []()
@@ -106,9 +106,23 @@ static UartRfBridge *bridge = nullptr;
 
 void setup()
 {
-    // The host protocol runs here, so the CDC buffer must hold a full max-size
-    // frame - same reason main_node.cpp enlarges the UART buffer.
-    Serial.setRxBufferSize(4096);
+    // The host protocol runs here, so the CDC buffers must hold a full max-size
+    // frame - same reason main_node.cpp enlarges the UART ones. Both setters have
+    // to precede begin(), which allocates a 256 B default for whatever is still
+    // unset.
+    //
+    // TX matters as much as RX: HWCDC::write copies the frame into this ring and
+    // returns - but only while it fits. Past that it blocks in 1 ms rounds up to
+    // tx_timeout_ms (100 by default) waiting for the phone to drain, and poll()
+    // is the only thing servicing the RX side meanwhile. 4 kB covers any single
+    // reply, so a stalled reader costs nothing until it stops reading entirely.
+    //
+    // Deliberately NOT mirroring main_node.cpp's setTxTimeoutMs(1) here: there
+    // Serial carries only the log, so a dropped write costs a log line. Here it
+    // carries the protocol, and a truncated write is a corrupt frame - the 100 ms
+    // default is the lesser evil.
+    Serial.setRxBufferSize(8192);
+    Serial.setTxBufferSize(4096);
     Serial.begin(115200);
     Logger::setWriteFn(&logToUsbCdc);
 
@@ -118,6 +132,11 @@ void setup()
     digitalWrite(KILLSWITCH_FC_CTL, HIGH);
     digitalWrite(KILLSWITCH_PSU_CTL, HIGH);
 
+    // Carries the runtime log once the bridge is up (see logToDebugUart). With the
+    // 256 B default, HardwareSerial::write blocks until the FIFO drains - ~22 ms at
+    // 115200 for a full buffer - and that comes straight out of poll()'s budget on
+    // a chatty run. Must precede begin().
+    Serial0.setTxBufferSize(4096);
     Serial0.begin(RPI_UART_BAUD, SERIAL_8N1, RPI_UART_RX, RPI_UART_TX);
     delay(2000);
 
@@ -149,7 +168,15 @@ void setup()
         while (1)
             delay(1000);
     }
-    node->startWorkerTask();
+    // Was unchecked: without the worker the node answers the phone normally but
+    // never touches the radio, which looks like a dead link rather than a boot
+    // failure. Halt loudly, as main_node.cpp does.
+    if (!node->startWorkerTask())
+    {
+        LOG_E("main", "boot_error reason=worker_task_start_failed");
+        while (1)
+            delay(1000);
+    }
 
     LOG_I("main", "ready addr=0x%02X (%s)", myAddr,
           fromJumpers ? "from jumpers" : "compiled-in fallback");

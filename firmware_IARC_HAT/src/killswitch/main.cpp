@@ -118,7 +118,7 @@ static constexpr uint32_t POLL_MS = 10;
 static constexpr uint32_t RESEND_GAP_MS = 75;
 
 static SPIClass loraSPI;
-static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::US915_CH0,
+static SX1262LoRaRadio radio(SX1262LoRaRadio::Channel::EU869_DC10,
                              LORA_CS, LORA_IRQ, LORA_RST, LORA_BUSY, loraSPI);
 
 static RFNodeConfig nodeCfg = []()

@@ -257,9 +257,10 @@ private:
     uint32_t _reasmTimeoutMs() const;
     uint8_t  _resolveL2(uint8_t appDst) const;
 
-    // Pre-send CSMA-CA jitter in [0, RF_JITTER_WINDOW_SLOTS × ToA]; 0 if ToA
-    // is unknown.
-    uint32_t _jitterDelayMs(uint16_t frameLen);
+    // Pre-send CSMA-CA jitter, uniform in
+    // [0, RF_JITTER_WINDOW_SLOTS × RF_JITTER_SLOT_MS]. Independent of frame
+    // length — see RF_JITTER_SLOT_MS for why.
+    uint32_t _jitterDelayMs() const;
 
     // Post-CHANNEL_BUSY retry backoff in [ToA, 2×ToA]; falls back to
     // RF_ACK_RETRY_FALLBACK_TOA_MS if airtime is unknown.

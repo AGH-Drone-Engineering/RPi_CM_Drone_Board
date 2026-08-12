@@ -42,7 +42,10 @@ Frames with no payload (requests, ACK) set `LENGTH=0` and omit `PAYLOAD`.
 -> SENDMSG(len=N, id=destId) + payload
 <- ACK
 ----
-ACK confirms receipt by the device only, not delivery over LoRa.
+ACK means the device queued the message for transmission — not that it was
+delivered over LoRa. No ACK means it was not queued (bad checksum, empty
+payload, or a full transmit queue) and nothing will be sent, so the retry is
+worth making.
 
 === GETCONF
 Same exchange as GETMSG with a message queued, but `id` is always `0`.
