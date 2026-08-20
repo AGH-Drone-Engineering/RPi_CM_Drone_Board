@@ -11,7 +11,7 @@
 # The FC hangs off GPIO14/15 (J_FC_UART on the IARC HAT), which is uart0 on Pi 5
 # silicon - not the UART3 install-loracom.sh enables for the HAT itself.
 # MAVProxy listens rather than connects (udpin), so any number of ground
-# stations can attach to port 14550 without this knowing their addresses.
+# stations can attach to ports 14550/14551 without this knowing their addresses.
 # It comes from pip, in install-utils.sh.
 #
 # The 5V rail is fed either by the onboard buck or by VBUS from the USB-C
@@ -44,9 +44,15 @@ MARKER_END="# END cmdb-system-setup"
 
 FC_UART_DEVICE=/dev/ttyAMA0
 FC_UART_BAUD=57600
-MAVLINK_UDP_PORT=14550
+MAVLINK_UDP_PORTS="14550 14551"
 MAVLINK_SERVICE=cmdb-mavlink.service
 MAVPROXY_STATE_DIR=/var/log/mavproxy
+
+# One --out per port, built once and reused by the banner and the unit file.
+MAVPROXY_OUTS=""
+for mavlink_port in $MAVLINK_UDP_PORTS; do
+    MAVPROXY_OUTS="$MAVPROXY_OUTS --out=udpin:0.0.0.0:$mavlink_port"
+done
 
 configtxt_init
 
@@ -55,7 +61,7 @@ install-cmdb-base.sh changes the following:
   * $ENV_FILE: CMDB_HARDWARE_REVISION, CMDB_HARDWARE_TYPE
   * hostname: $HOSTNAME_PREFIX-<mac>, until the HAT provides the real one
   * config.txt: uart0 enabled ($FC_UART_DEVICE, the FC link), usb_max_current_enable=1
-  * $MAVLINK_SERVICE: MAVProxy bridging $FC_UART_DEVICE to udpin:0.0.0.0:$MAVLINK_UDP_PORT
+  * $MAVLINK_SERVICE: MAVProxy bridging $FC_UART_DEVICE to udpin:0.0.0.0 on ports: $MAVLINK_UDP_PORTS
 EOF
 
 # ---------------------------------------------------------------------------
@@ -153,7 +159,7 @@ Wants=dev-$(basename "$FC_UART_DEVICE").device
 # --daemon keeps MAVProxy off the console without forking, so systemd still
 # tracks the process. --state-basedir keeps its tlogs out of the working
 # directory, which would otherwise be /.
-ExecStart=$MAVPROXY_BIN --master=$FC_UART_DEVICE,$FC_UART_BAUD --out=udpin:0.0.0.0:$MAVLINK_UDP_PORT --daemon --state-basedir=$MAVPROXY_STATE_DIR
+ExecStart=$MAVPROXY_BIN --master=$FC_UART_DEVICE,$FC_UART_BAUD$MAVPROXY_OUTS --daemon --state-basedir=$MAVPROXY_STATE_DIR
 Restart=always
 RestartSec=5
 
