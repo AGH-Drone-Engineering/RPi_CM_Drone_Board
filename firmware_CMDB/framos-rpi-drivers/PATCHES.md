@@ -81,16 +81,95 @@ full-res failure: a no-op flip that flipped the label back to RGGB.) Removing
 `MODIFY_LAYOUT` from the `vflip` control, or unregistering both flips, would
 close this off - deliberately not done here, to keep the patch minimal.
 
-**Two mode phases are inferred, not measured.** The Bayer phase was verified for
-2064x1552 and 1032x776. `2064x154` and `1024x720` are now exposed as RGGB on the
-same reasoning but were never checked against a test pattern.
+**The subsampled modes are not RGGB, and this patch mislabels them.** The claim
+that used to stand here - that the phase had been verified for both 2064x1552 and
+1032x776, leaving only `2064x154` and `1024x720` inferred - does not survive
+measurement. Reading the raw Bayer planes off a DNG of a flat neutral target,
+black level 3840 subtracted:
 
-**`--framerate` does not work** - unrelated to this patch. The driver pins
-`vertical_blanking` to min=max=137, which is the only lever libcamera has on
-frame duration, so the sensor free-runs (72.07 fps at full resolution). The
-vendor `frame_rate` V4L2 control (micro-fps, set on the subdev *after* the
-stream starts) is the only working limit, and libcamera resets it on every
-configure - so it needs a watchdog to hold.
+| mode | R/G | B/G | G2/G |
+| --- | --- | --- | --- |
+| 2064x1552 | 0.538 | 0.405 | 0.997 |
+| 1032x776 | 2.164 | 2.153 | 1.382 |
+
+A correct phase puts equal signal in both green planes, which is what full
+resolution shows (G2/G 0.997). At 1032x776 they are 38% apart while R and B land
+within 0.5% of each other - green is sitting in the R and B slots. The two green
+slots hold 582 and 804, reproducing the full-res R:B ratio (804/582 = 1.38
+against 1834/1378 = 1.33), which is where R and B went. So the vendor's original
+`SGBRG*` labelling was right for the subsampled modes: forcing RGGB across the
+whole table fixed the two full-resolution modes and broke the colour of every
+subsampled one. Colour gains that neutralise 2064x1552 (G/R 1.02, G/B 1.02)
+leave 1032x776 at G/R 0.34, G/B 0.28.
+
+Nothing here works around that yet - IARC2026_raspi_control_flow just defaults
+its capture path to the full sensor. Fixing it properly means advertising the
+real order per mode again without reintroducing the mode-selection failure the
+first half of this patch exists to solve, since libcamera still insists on one
+native order for the whole sensor. `2064x154` and `1024x720` remain unmeasured;
+given the above, treat them as suspect rather than as RGGB.
+
+## drivers/fr_imx900.c - make VBLANK writable so exposure can be raised
+
+### Symptom
+
+`--framerate` and `--shutter` are both ignored. At 1032x776 the sensor
+free-runs at 136.62 fps and `ExposureTime` sticks at 6901 us no matter what is
+asked for (72.07 fps at full resolution). Anywhere but bright daylight the AGC
+runs out of exposure, pins `AnalogueGain` at its 7.94x ceiling, and the frame
+comes out dark and noisy - which then wrecks AWB too, there being no clean
+signal left to balance.
+
+### Why
+
+libcamera lengthens a frame *only* through `V4L2_CID_VBLANK`. The driver
+registers that control and then pins it:
+
+```c
+__v4l2_ctrl_modify_range(imx900->vblank, imx900->min_frame_length_delta,
+			 imx900->min_frame_length_delta,
+			 1, imx900->min_frame_length_delta);
+```
+
+min == max, in both `imx900_adjust_min_frame_length_delta()` and
+`imx900_update_frame_rate()`. Exposure is capped at `frame_length -
+min_shs_length`, so pinning the frame length pins the exposure ceiling with it.
+
+The vendor's substitute is the custom `frame_rate` control (micro-fps), which
+libcamera knows nothing about. It does work, but only when written to the
+subdev *after* streaming starts, and the driver resets it to its default on
+sensor power-down - so it needs a watchdog to hold it, and libcamera's own AGC
+still believes it has no frame-duration headroom.
+
+### The change
+
+Give VBLANK a real range: `min_frame_length_delta` up to the frame length
+implied by the mode's own `min_fps` - the slowest rate `frame_rate` already
+accepted, so VBLANK cannot reach anywhere `frame_rate` could not
+(`imx900_max_frame_length()`).
+
+The range is opened in `imx900_set_limits()`, right after `line_time` becomes
+known, rather than left to the `__v4l2_ctrl_s_ctrl(framerate, max_framerate)`
+at the end of that function: re-selecting the same mode leaves that control's
+value unchanged, and the framework then skips its `s_ctrl` entirely, which
+would leave VBLANK pinned. `imx900_update_frame_rate()` opens it as well, so
+the `frame_rate` path no longer re-pins what the mode set opened.
+
+VBLANK also has to *do* something. Its `s_ctrl` case only recomputed the
+exposure range and never touched the sensor, frame length having been owned by
+`frame_rate` alone. It now updates `imx900->frame_length` - which the exposure
+range, SHS and the stop-streaming delay all read back - and writes VMAX.
+
+At 1032x776 12-bit VBLANK goes from a pinned 115 to a range of 115..120,952,
+which by `exposure_max = vblank + height - min_shs_length` takes the exposure
+ceiling from 840 to 121,677 lines - 6.9 ms to ~1 s. `--framerate`, `--shutter`
+and libcamera's AGC all work.
+
+### Caveat
+
+`min_fps` is 1 fps for every mode, so VBLANK now advertises a range wide enough
+for a one-second frame. That is the vendor's own number, not a measured limit -
+nothing here verified that the sensor is happy at its slowest advertised rate.
 
 ## Rebuilding
 
