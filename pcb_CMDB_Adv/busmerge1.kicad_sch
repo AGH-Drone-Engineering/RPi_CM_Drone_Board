@@ -1,0 +1,82 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "d028b0ba-73c7-4d4a-a8e6-4575e3340e71")
+	(paper "A4")
+	(lib_symbols)
+	(text "Because busses in KiCad are cursed."
+		(exclude_from_sim no)
+		(at 64.516 32.258 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "89abcc68-f589-4295-aec9-3777e9cc519b")
+	)
+	(wire
+		(pts
+			(xy 66.04 27.94) (xy 62.23 27.94)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9dc4cf2a-d23a-4c05-8738-7b66fcc3bcfc")
+	)
+	(wire
+		(pts
+			(xy 66.04 25.4) (xy 62.23 25.4)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fdbe86f6-d2ef-4bb8-b228-eed031b6e333")
+	)
+	(hierarchical_label "LED_Y_1"
+		(shape input)
+		(at 66.04 25.4 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "1bb600e2-aae9-4328-94c8-c1c337834443")
+	)
+	(hierarchical_label "LED_Y_2"
+		(shape output)
+		(at 62.23 25.4 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "5c59fedb-462b-4987-a5a7-77eb4812daea")
+	)
+	(hierarchical_label "LED_G_2"
+		(shape output)
+		(at 62.23 27.94 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "a350a4e2-ba95-4803-a7e1-6c9774c4c1b5")
+	)
+	(hierarchical_label "LED_G_1"
+		(shape input)
+		(at 66.04 27.94 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "ca552087-d1ff-40d3-b4cb-6e0e75bcc54e")
+	)
+)

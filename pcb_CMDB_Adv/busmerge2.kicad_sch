@@ -1,0 +1,210 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "0976987e-3da0-4e04-942c-18555f3279e1")
+	(paper "A4")
+	(lib_symbols)
+	(text "Because busses in KiCad are cursed."
+		(exclude_from_sim no)
+		(at 82.55 64.262 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "bb2bb290-c0c4-4296-ac9a-e02f9a722861")
+	)
+	(wire
+		(pts
+			(xy 68.58 58.42) (xy 100.33 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0e92854a-2701-47ff-a6f4-2b7684cb8856")
+	)
+	(wire
+		(pts
+			(xy 68.58 50.8) (xy 100.33 50.8)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "36b540c2-7bd5-4ce1-be9d-70ca6a1017c7")
+	)
+	(wire
+		(pts
+			(xy 68.58 60.96) (xy 100.33 60.96)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "46486eef-347c-486d-a916-4b432d7eb9f2")
+	)
+	(wire
+		(pts
+			(xy 68.58 53.34) (xy 100.33 53.34)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b74cf0f1-d097-4303-bc2b-aaaea795df93")
+	)
+	(wire
+		(pts
+			(xy 68.58 55.88) (xy 100.33 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ca4e8759-7fd4-4d52-b7d2-636ec270b07c")
+	)
+	(wire
+		(pts
+			(xy 68.58 48.26) (xy 100.33 48.26)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d9011d0c-d559-4427-8274-09f9191bdc91")
+	)
+	(hierarchical_label "P1_P"
+		(shape output)
+		(at 68.58 53.34 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "0efb05a7-7b32-4f4f-97d0-ae5b5dddd773")
+	)
+	(hierarchical_label "P0_N"
+		(shape input)
+		(at 68.58 50.8 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "0f5e5627-bc39-40a7-9676-1a4dbd1ce378")
+	)
+	(hierarchical_label "P0_P"
+		(shape input)
+		(at 68.58 48.26 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "28c9d579-a61d-4b13-8d4e-b34f9b8fdb55")
+	)
+	(hierarchical_label "TX_P"
+		(shape input)
+		(at 100.33 53.34 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "2e441c12-6253-455d-b974-938ddca9192b")
+	)
+	(hierarchical_label "LED_G_1"
+		(shape input)
+		(at 100.33 60.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "2f3200bb-8fa1-4a25-aa05-9e0e9c085567")
+	)
+	(hierarchical_label "LED_Y_2"
+		(shape output)
+		(at 68.58 58.42 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "31b9da5f-bdb8-4681-93df-ab54defe7064")
+	)
+	(hierarchical_label "RX_N"
+		(shape output)
+		(at 100.33 50.8 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "58cd7f4f-3dac-431b-bf27-b9fb187a2bc8")
+	)
+	(hierarchical_label "TX_N"
+		(shape input)
+		(at 100.33 55.88 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "cbe5a196-5448-43ba-9941-e150a15b1c7c")
+	)
+	(hierarchical_label "LED_G_2"
+		(shape output)
+		(at 68.58 60.96 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "d86894ab-d43c-491c-b239-d89bf341f257")
+	)
+	(hierarchical_label "RX_P"
+		(shape output)
+		(at 100.33 48.26 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "db1c387b-63fb-4c91-8851-d2dbf4936d4d")
+	)
+	(hierarchical_label "P1_N"
+		(shape output)
+		(at 68.58 55.88 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "e8d5fa61-a586-446a-bec8-298879e3ca70")
+	)
+	(hierarchical_label "LED_Y_1"
+		(shape input)
+		(at 100.33 58.42 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "fb2c6ac9-2fdd-494c-8e7d-26639ee145b2")
+	)
+)
